@@ -340,15 +340,15 @@ PUT /user/password
 
 ```json
 {
-  "passwordLama": "Lama12345",
-  "passwordBaru": "Baru12345"
+  "oldPassword": "Lama12345",
+  "newPassword": "Baru12345"
 }
 ```
 
-| Field          | Aturan                                    |
-|----------------|-------------------------------------------|
-| `passwordLama` | Wajib, tidak boleh kosong                 |
-| `passwordBaru` | Wajib, tidak boleh kosong, minimal 8 karakter |
+| Field         | Aturan                                                        |
+|---------------|---------------------------------------------------------------|
+| `oldPassword` | Wajib, 8–16 karakter                                          |
+| `newPassword` | Wajib, 8–16 karakter, tidak boleh sama dengan username        |
 
 **Response `200 OK`**
 ```json
@@ -362,12 +362,15 @@ PUT /user/password
 
 | Status | Pesan | Kondisi |
 |--------|-------|---------|
-| `400`  | `"Kolom password tidak boleh kosong"` | Salah satu field kosong |
-| `400`  | `"Password minimal 8 karakter"` | `passwordBaru` kurang dari 8 karakter |
-| `400`  | `"Password lama salah"` | `passwordLama` tidak cocok |
-| `401`  | `"token tidak valid atau sudah expired"` | Token tidak valid |
-| `404`  | `"user tidak ketemu"` | User tidak ditemukan |
-| `500`  | `"gagal update password"` | Kesalahan server |
+| `400`  | `"Password tidak boleh kosong"` | `newPassword` kosong |
+| `400`  | `"Password lama tidak boleh kosong"` | `oldPassword` kosong |
+| `400`  | `"Password minimal 8 karakter"` | `newPassword` kurang dari 8 karakter |
+| `400`  | `"Password lama minimal 8 karakter"` | `oldPassword` kurang dari 8 karakter |
+| `400`  | `"Password lama salah"` | `oldPassword` tidak cocok dengan password saat ini |
+| `400`  | `"password tidak boleh sama dengan username"` | `newPassword` sama dengan username |
+| `401`  | `"tidak terautentikasi"` | Token tidak valid |
+| `404`  | `"user tidak ditemukan"` | User tidak ditemukan |
+| `500`  | `"gagal update password user"` | Kesalahan server |
 
 ---
 
