@@ -6,7 +6,11 @@ import Document from "../models/document.model.js"
 import Notebook from "../models/notebook.model.js"
 import Chunk from "../models/chunk.model.js"
 import TableOfContents from "../models/toc.model.js"
-import { chunkPDF, chunkPPTX, chunkTXT, chunkDOCX } from "../services/chunking.js"
+import { chunkPDF, chunkPPTX, chunkTXT, chunkDOCX, NoTextError } from "../services/chunking.js"
+
+// Minimum total karakter yang harus bisa diekstrak dari dokumen.
+// Di bawah batas ini, dokumen dihapus otomatis setelah parsing.
+const MIN_CONTENT_CHARS = 50
 import response from "../utils/response.js"
 import envVariable from "../utils/ENV.js"
 
@@ -112,6 +116,18 @@ export const uploadDocument = async (req: Request, res: Response) => {
                             ? await chunkDOCX(buffer, doc._id)
                             : await chunkTXT(buffer, doc._id)
 
+                // tolak dokumen yang kontennya terlalu sedikit — hapus dari DB dan disk
+                const totalChars = chunks.reduce((sum, c) => sum + c.content.length, 0)
+                if (totalChars < MIN_CONTENT_CHARS) {
+                    const base = envVariable.UPLOAD_BASE_URL.replace(/\/$/, "")
+                    const relativePath = doc.fileUrl.replace(base, "")
+                    const filePath = path.join(envVariable.UPLOADS_DIR, relativePath)
+                    if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+                    await doc.deleteOne()
+                    console.warn(`[chunking] tolak ${doc.title} — konten terlalu sedikit (${totalChars} karakter)`)
+                    return
+                }
+
                 if (chunks.length > 0) {
                     await Chunk.insertMany(chunks)
                 }
@@ -133,10 +149,21 @@ export const uploadDocument = async (req: Request, res: Response) => {
 
                 console.error(`[chunking] gagal proses ${doc.title}:`, err)
 
-                await Document.findByIdAndUpdate(doc._id, {
-                    parseStatus: "error",
-                    parseError: errorMessage,
-                })
+                // hapus dari DB dan disk supaya tidak muncul di list
+                try {
+                    const base = envVariable.UPLOAD_BASE_URL.replace(/\/$/, "")
+                    const relativePath = doc.fileUrl.replace(base, "")
+                    const filePath = path.join(envVariable.UPLOADS_DIR, relativePath)
+                    if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+                    await doc.deleteOne()
+                } catch (cleanupErr) {
+                    // cleanup gagal — tandai error supaya tidak stuck di pending
+                    console.error(`[chunking] cleanup gagal ${doc.title}:`, cleanupErr)
+                    await Document.findByIdAndUpdate(doc._id, {
+                        parseStatus: "error",
+                        parseError: errorMessage,
+                    })
+                }
             }
         })
 
@@ -167,7 +194,10 @@ export const getDocumentsByNotebook = async (req: Request, res: Response) => {
         }
 
         const notebookObjectId = new mongoose.Types.ObjectId(notebookId)
-        const documents = await Document.find({ notebookId: notebookObjectId }).sort({ createdAt: -1 })
+        const documents = await Document.find({
+                        notebookId: notebookObjectId,
+                        parseStatus: { $in: ["done", "pending"] }
+                    }).sort({ createdAt: -1 })
 
         return response.requestSuccessWithData(res, "berhasil get dokumen", { documents }, 200)
     } catch (error) {
