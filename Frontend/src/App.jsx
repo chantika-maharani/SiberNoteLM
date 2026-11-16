@@ -2368,7 +2368,10 @@ function WorkspacePage({ notebook, accessToken, profile, onBack, onLogout, onEdi
 
   // State untuk fitur Pelajari per Bab
   const [fetchingChapters, setFetchingChapters] = useState(false);
-  const [babTerpilih, setBabTerpilih] = useState(null);
+  const [babTerpilih, setBabTerpilih] = useState(() => {
+    const saved = localStorage.getItem(`selected_chapter_${notebook._id}`);
+    return saved ? JSON.parse(saved) : null;
+  });
   const [fetchingSummary, setFetchingSummary] = useState(false);
 
   //State untuk flashcard
@@ -2439,9 +2442,20 @@ function WorkspacePage({ notebook, accessToken, profile, onBack, onLogout, onEdi
 
     getChatHistory(notebook._id, accessToken)
       .then((data) => {
-        if (!cancelled) {
-          setMessages(data?.messages || []);
+        if (cancelled) return;
+        const history = data?.messages || [];
+
+        // Cek apakah sebelumnya ada daftar bab yang disimpan untuk notebook ini
+        const savedChapterMsg = localStorage.getItem(`chapter_msg_${notebook._id}`);
+        if (savedChapterMsg) {
+          const parsedMsg = JSON.parse(savedChapterMsg);
+          // Gabungkan ke riwayat chat jika belum ada
+          if (!history.some((m) => m._id === "temp-chapters")) {
+            history.push(parsedMsg);
+          }
         }
+
+        setMessages(history);
       })
       .catch((err) => {
         if (!cancelled) {
@@ -2531,6 +2545,7 @@ function WorkspacePage({ notebook, accessToken, profile, onBack, onLogout, onEdi
         chapters: chaptersList,
       };
 
+      localStorage.setItem(`chapter_msg_${notebook._id}`, JSON.stringify(tempMsg));
       setMessages((prev) => [...prev, tempMsg]);
     } catch (err) {
       // Skenario 6: Munculkan notifikasi gagal, tombol tetap bisa ditekan (karena state kembali false)
@@ -2560,6 +2575,7 @@ function WorkspacePage({ notebook, accessToken, profile, onBack, onLogout, onEdi
       // Skenario 5: Munculkan notifikasi error melayang merah, babTerpilih dikosongkan agar bisa diklik ulang
       notify("Gagal membuat ringkasan, silakan coba lagi.", "error");
       setBabTerpilih(null); 
+      localStorage.removeItem(`selected_chapter_${notebook._id}`);
     } finally {
       setFetchingSummary(false); // Matikan loading
     }
