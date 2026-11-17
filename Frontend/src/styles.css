@@ -3149,7 +3149,6 @@ chat-menu-btn:hover {
 .profile-avatar-img {
   border-radius: 50%;
   overflow: hidden;
-<<<<<<< HEAD
   display: flex;
 }
 
@@ -3189,6 +3188,4 @@ chat-menu-btn:hover {
   font-size: 1.1rem;
   font-weight: 600;
   pointer-events: none; /* Mencegah teks memblokir event drag */
-=======
->>>>>>> b97a22e197fbf59e8c4d7cd3b2950dc38b399004
 }

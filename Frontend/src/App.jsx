@@ -2524,7 +2524,7 @@ function WorkspacePage({ notebook, accessToken, profile, onBack, onLogout, onEdi
   }
 
   // 1. Load riwayat chat dari backend saat workspace dibuka
-  (() => {
+  useEffect(() => {
     let cancelled = false;
     setMessages([]);
     setLoadingChat(true);
