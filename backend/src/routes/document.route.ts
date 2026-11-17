@@ -1,5 +1,5 @@
 import { Router } from "express"
-import { uploadDocument, getDocumentsByNotebook, deleteDocument, updateDocument, getDocumentStatus, 
+import { uploadDocument, getDocumentsByNotebook, deleteDocument, updateDocument, getDocumentStatus, getDocumentPage,
     // getCitationsByDocument 
 } from "../controllers/document.controller.js"
 import { authenticate } from "../middlewares/auth.middleware.js"
@@ -14,6 +14,7 @@ documentRouter.use(authenticate)
 
 documentRouter.post("/:notebookId", handleDocumentUpload, uploadDocument)
 documentRouter.get("/status/:documentId", getDocumentStatus)
+documentRouter.get("/:documentId/pages/:page", isDocumentOwner, getDocumentPage)
 // documentRouter.get("/:documentId/citations", isDocumentOwner, getCitationsByDocument)
 documentRouter.get("/:notebookId", getDocumentsByNotebook)
 documentRouter.patch("/:documentId", validateRequest(updateDocumentSchema), isDocumentOwner, updateDocument)

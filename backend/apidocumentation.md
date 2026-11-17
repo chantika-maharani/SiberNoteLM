@@ -1194,6 +1194,66 @@ GET /documents/status/:documentId
 | `404`  | Dokumen tidak ditemukan            |
 | `500`  | Kesalahan server                   |
 
+---
+
+### Get Document Page
+
+Mengambil isi satu halaman dokumen. Untuk PDF dan PPTX, halaman merujuk ke halaman fisik atau slide asli. Untuk DOCX dan TXT, halaman merujuk ke potongan 3000 karakter (halaman 2 = karakter 3001–6000).
+
+```
+GET /documents/:documentId/pages/:page
+```
+
+**URL Params**
+
+| Param        | Keterangan                                  |
+|--------------|---------------------------------------------|
+| `documentId` | ID dokumen MongoDB                          |
+| `page`       | Nomor halaman yang diminta (mulai dari `1`) |
+
+**Headers**
+
+| Key             | Value                  | Required |
+|-----------------|------------------------|----------|
+| `Authorization` | `Bearer <accessToken>` | ✅        |
+
+**Response `200 OK`**
+```json
+{
+  "status": "success",
+  "message": "berhasil mendapatkan isi halaman",
+  "data": {
+    "documentId": "665f1a2b3c4d5e6f7a8b9c0f",
+    "documentTitle": "Basis_Data",
+    "fileType": "pdf",
+    "page": 1,
+    "totalPages": 40,
+    "content": "Basis data adalah kumpulan data yang terorganisir..."
+  }
+}
+```
+
+| Field           | Tipe     | Keterangan                                                                              |
+|-----------------|----------|-----------------------------------------------------------------------------------------|
+| `documentId`    | `string` | ID dokumen                                                                              |
+| `documentTitle` | `string` | Judul dokumen                                                                           |
+| `fileType`      | `string` | `"pdf"` / `"pptx"` / `"docx"` / `"txt"`                                               |
+| `page`          | `number` | Nomor halaman yang dikembalikan                                                         |
+| `totalPages`    | `number` | Jumlah halaman total dokumen                                                            |
+| `content`       | `string` | Isi teks halaman. Jika satu halaman terdiri dari beberapa chunk, digabung dengan `\n\n` |
+
+**Error Responses**
+
+| Status | Kondisi                                      |
+|--------|----------------------------------------------|
+| `400`  | `page` bukan angka bulat positif             |
+| `400`  | `page` melebihi `totalPages`                 |
+| `401`  | Tidak terautentikasi                         |
+| `403`  | Dokumen bukan milik user                     |
+| `404`  | Dokumen tidak ditemukan                      |
+| `404`  | Tidak ada konten di halaman tersebut         |
+| `500`  | Kesalahan server                             |
+
 ## parseStatus Flow
 
 Field `parseStatus` pada dokumen menunjukkan status pemrosesan background. Frontend polling `GET /documents/status/:documentId` sampai `parseStatus` bukan `"pending"`.

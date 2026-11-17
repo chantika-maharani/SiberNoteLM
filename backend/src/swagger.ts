@@ -868,6 +868,53 @@ const options: swaggerJSDoc.Options = {
             // ═══════════════════════════════════════════════════════════════
             // TABLE OF CONTENTS
             // ═══════════════════════════════════════════════════════════════
+            "/documents/{documentId}/pages/{page}": {
+                get: {
+                    tags: ["Documents"],
+                    summary: "Ambil isi satu halaman dokumen",
+                    description: "PDF/PPTX: halaman merujuk ke halaman fisik atau slide asli. DOCX/TXT: halaman merujuk ke potongan 3000 karakter (halaman 2 = karakter 3001–6000).",
+                    security: [{ bearerAuth: [] }],
+                    parameters: [
+                        { in: "path", name: "documentId", required: true, schema: { type: "string" }, description: "ID dokumen MongoDB" },
+                        { in: "path", name: "page", required: true, schema: { type: "integer", minimum: 1 }, description: "Nomor halaman yang diminta (mulai dari 1)" },
+                    ],
+                    responses: {
+                        200: {
+                            description: "Isi halaman dokumen",
+                            content: {
+                                "application/json": {
+                                    schema: {
+                                        type: "object",
+                                        properties: {
+                                            status: { type: "string", example: "success" },
+                                            message: { type: "string", example: "berhasil mendapatkan isi halaman" },
+                                            data: {
+                                                type: "object",
+                                                properties: {
+                                                    documentId: { type: "string", example: "665f1a2b3c4d5e6f7a8b9c0f" },
+                                                    documentTitle: { type: "string", example: "Basis_Data" },
+                                                    fileType: { type: "string", enum: ["pdf", "pptx", "docx", "txt"] },
+                                                    page: { type: "integer", example: 1 },
+                                                    totalPages: { type: "integer", example: 40 },
+                                                    content: { type: "string", example: "Basis data adalah kumpulan data yang terorganisir..." },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        400: { description: "Nomor halaman tidak valid atau melebihi totalPages", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+                        401: { description: "Tidak terautentikasi", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+                        403: { description: "Dokumen bukan milik user", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+                        404: { description: "Dokumen tidak ditemukan / konten halaman tidak ditemukan", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+                        500: { description: "Kesalahan server", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+                    },
+                },
+            },
+            // ═══════════════════════════════════════════════════════════════
+            // TABLE OF CONTENTS
+            // ═══════════════════════════════════════════════════════════════
             "/notebooks/{notebookId}/toc": {
                 get: {
                     tags: ["Notebooks"],

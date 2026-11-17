@@ -295,6 +295,69 @@ export const updateDocument = async (req: Request, res: Response) => {
 //         return response.serverError(res, "gagal get citations")
 //     }
 // }
+export const getDocumentPage = async (req: Request, res: Response) => {
+    try {
+        const { documentId, page: pageParam } = req.params
+        
+        if (typeof pageParam !== "string") {
+            return response.userError(res, "nomor halaman tidak valid", 400)
+        }
+        const page = parseInt(pageParam ?? "", 10)
+
+
+        if (isNaN(page) || page < 1) {
+            return response.userError(res, "nomor halaman tidak valid", 400)
+        }
+
+        const doc = await Document.findById(documentId).lean()
+        if (!doc) {
+            return response.notFoundError(res, "dokumen tidak ditemukan")
+        }
+
+        if (page > doc.totalPages) {
+            return response.userError(res, "nomor halaman tidak valid", 400)
+        }
+
+        // PDF & PPTX: chunk diindeks per halaman/slide asli
+        // DOCX & TXT: chunk diindeks per potongan 3000 karakter (chunkIndex = page - 1)
+        const isPageBased = doc.fileType === "pdf" || doc.fileType === "pptx"
+
+        const chunks = isPageBased
+            ? await Chunk.find({
+                  documentId: doc._id,
+                  pageStart: { $lte: page },
+                  pageEnd: { $gte: page },
+              })
+                  .select("content")
+                  .sort({ chunkIndex: 1 })
+                  .lean()
+            : await Chunk.find({
+                  documentId: doc._id,
+                  chunkIndex: page - 1,
+              })
+                  .select("content")
+                  .lean()
+
+        if (chunks.length === 0) {
+            return response.notFoundError(res, "konten halaman tidak ditemukan")
+        }
+
+        const content = chunks.map((c) => c.content).join("\n\n")
+
+        return response.requestSuccessWithData(res, "berhasil mendapatkan isi halaman", {
+            documentId: doc._id,
+            documentTitle: doc.title,
+            fileType: doc.fileType,
+            page,
+            totalPages: doc.totalPages,
+            content,
+        }, 200)
+    } catch (error) {
+        console.error(error)
+        return response.serverError(res, "gagal mendapatkan isi halaman")
+    }
+}
+
 export const getDocumentStatus = async (req: Request, res: Response) => {
     try {
         const userId = req.userId
