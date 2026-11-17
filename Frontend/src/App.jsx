@@ -1914,6 +1914,70 @@ function SourcesPanel({
 
   const isPreviewMode = !collapsed && sumberView === "preview" && activePreview;
 
+  const [isDragging, setIsDragging] = useState(false);
+  const [dropError, setDropError] = useState("");
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Hanya aktifkan drag and drop jika panel tidak sedang ditutup/menciut
+    if (!collapsed) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!collapsed) setIsDragging(true);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    setDropError(""); // Reset error sebelumnya
+
+    if (collapsed) return; // Abaikan drop jika panel sedang ditutup
+
+    const files = e.dataTransfer.files;
+    
+    if (files.length === 0) return;
+
+    // Skenario 4: Menolak lebih dari satu file
+    if (files.length > 1) {
+      setDropError("Unggah satu file dalam satu waktu");
+      return;
+    }
+
+    const file = files[0];
+
+    // Skenario 3: Validasi Ekstensi/Format
+    const validExtensions = ["pdf", "pptx", "docx", "txt"];
+    const fileExtension = file.name.split('.').pop().toLowerCase();
+    
+    if (!validExtensions.includes(fileExtension)) {
+      setDropError("Format tidak didukung, hanya PDF, PPTX, DOCX, dan TXT");
+      return;
+    }
+
+    // Skenario 3: Validasi Ukuran (Maksimal 20 MB)
+    const maxSize = 20 * 1024 * 1024; // 20 MB dalam bytes
+    if (file.size > maxSize) {
+      setDropError("Ukuran file melebihi batas maksimal 20 MB");
+      return;
+    }
+
+    // Skenario 2: Teruskan ke prop onAddFile bawaan panel ini
+    onAddFile(file); 
+  };
+
   // Saat ada file baru dikirim, gulung daftar ke atas supaya progress bar-nya terlihat.
   useEffect(() => {
     if (uploads.length > 0 && listRef.current) listRef.current.scrollTop = 0;
@@ -1922,7 +1986,10 @@ function SourcesPanel({
   function handleFileChange(e) {
     const file = e.target.files?.[0];
     e.target.value = ""; // supaya file yang sama bisa dipilih lagi
-    if (file) onAddFile(file);
+    if (file) {
+      setDropError("");
+      onAddFile(file);
+    }
   }
 
   // Ada error saat panel sedang menyusut (mis. OCR gagal): buka panel supaya pesannya terbaca.
@@ -1951,7 +2018,24 @@ function SourcesPanel({
   }
 
   return (
-    <section className={`panel panel-sources${collapsed ? " is-collapsed" : ""}`} aria-label="Sumber">
+    <section 
+      className={`panel panel-sources${collapsed ? " is-collapsed" : ""}${isDragging ? " dragging-active" : ""}`} 
+      aria-label="Sumber"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      style={{ position: 'relative' }} // Penting agar overlay tidak bocor keluar panel
+    >
+      {/* Skenario 1: Tampilan Area Lepas saat di-drag */}
+      {isDragging && !collapsed && (
+        <div className="drag-drop-overlay">
+          <div className="drag-drop-content">
+            <p>Lepaskan file di sini</p>
+          </div>
+        </div>
+      )}
+
       <div className="panel-head">
         {!collapsed && <h2 className="panel-title">Sumber</h2>}
         <button
@@ -2000,7 +2084,7 @@ function SourcesPanel({
                 title={`Mengunggah ${u.name}`}
               >
                 <FileIcon type={u.type} />
-              </span>
+        useEffect      </span>
             </li>
           ))}
           {documents.map((doc) => (
@@ -2021,19 +2105,25 @@ function SourcesPanel({
       {/* Panel diperluas */}
       {!collapsed && (
         <>
-          {/* CABANG PREVIEW: Jika sumberView === "preview" dan ada activePreview, tampilkan DocumentPreview */}
-          {isPreviewMode? (
+          {isPreviewMode ? (
             <DocumentPreview
               previewData={activePreview}
               onBack={onClosePreview}
               accessToken={accessToken}
             />
           ) : (
-            /* CABANG DAFTAR UTAMA: Jika mode biasa, tampilkan daftar sumber */
             <>
               <button type="button" className="upload-btn" onClick={() => fileInputRef.current?.click()}>
                 Tambah Sumber +
               </button>
+
+              {/* Skenario 3 & 4: Teks merah persis di bawah area upload jika terjadi error drop */}
+              {dropError && (
+                <p className="msg-error" style={{ color: "#E53935", margin: "12px 16px 0 16px", fontSize: "0.9rem", textAlign: "center" }}>
+                  {dropError}
+                </p>
+              )}
+
               <ul className="source-list" ref={listRef}>
                 {uploads.map((u) => (
                   <li key={u.id} className="source-item source-item--processing" aria-busy="true">
@@ -2431,7 +2521,7 @@ function WorkspacePage({ notebook, accessToken, profile, onBack, onLogout, onEdi
   }
 
   // 1. Load riwayat chat dari backend saat workspace dibuka
-  useEffect(() => {
+  (() => {
     let cancelled = false;
     setMessages([]);
     setLoadingChat(true);
@@ -2564,7 +2654,22 @@ function WorkspacePage({ notebook, accessToken, profile, onBack, onLogout, onEdi
       setFetchingSummary(false); // Matikan loading
     }
   }
-  
+
+  useEffect(() => {
+    const preventBrowserDrop = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    // Mencegah perilaku bawaan browser secara global
+    window.addEventListener("dragover", preventBrowserDrop);
+    window.addEventListener("drop", preventBrowserDrop);
+
+    return () => {
+      window.removeEventListener("dragover", preventBrowserDrop);
+      window.removeEventListener("drop", preventBrowserDrop);
+    };
+  }, []);
 
   return (
     <div className="workspace-page">

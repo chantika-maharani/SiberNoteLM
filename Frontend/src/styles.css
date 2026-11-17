@@ -3151,3 +3151,41 @@ chat-menu-btn:hover {
   overflow: hidden;
   display: flex;
 }
+
+/* Kontainer utama kolom sumber */
+.source-panel-container {
+  position: relative;
+  /* Sesuaikan tinggi dan padding dengan desain yang sudah ada */
+  min-height: 250px; 
+  transition: all 0.2s ease-in-out;
+}
+
+/* Saat file sedang diseret di atas kolom (Skenario 1) */
+.source-panel-container.dragging-active {
+  border: 2px dashed #4da6ff; /* Garis tepi putus-putus berwarna biru/aksen */
+  /* border-radius: 8px; */
+  background-color: rgba(77, 166, 255, 0.05); /* Sedikit highlight background */
+}
+
+/* Overlay yang menutupi konten saat dragging */
+.drag-drop-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(30, 30, 30, 0.85); /* Latar gelap transparan */
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit; /* Mengikuti radius kontainer */
+}
+
+/* Teks di dalam overlay */
+.drag-drop-content p {
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 600;
+  pointer-events: none; /* Mencegah teks memblokir event drag */
+}
