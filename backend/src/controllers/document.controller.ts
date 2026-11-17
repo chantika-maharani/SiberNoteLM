@@ -298,7 +298,12 @@ export const updateDocument = async (req: Request, res: Response) => {
 export const getDocumentPage = async (req: Request, res: Response) => {
     try {
         const { documentId, page: pageParam } = req.params
+        
+        if (typeof pageParam !== "string") {
+            return response.userError(res, "nomor halaman tidak valid", 400)
+        }
         const page = parseInt(pageParam ?? "", 10)
+
 
         if (isNaN(page) || page < 1) {
             return response.userError(res, "nomor halaman tidak valid", 400)
