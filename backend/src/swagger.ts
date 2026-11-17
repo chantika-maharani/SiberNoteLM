@@ -403,10 +403,10 @@ const options: swaggerJSDoc.Options = {
                             "application/json": {
                                 schema: {
                                     type: "object",
-                                    required: ["passwordLama", "passwordBaru"],
+                                    required: ["oldPassword", "newPassword"],
                                     properties: {
-                                        passwordLama: { type: "string", example: "Lama12345" },
-                                        passwordBaru: { type: "string", minLength: 8, example: "Baru12345" },
+                                        oldPassword: { type: "string", minLength: 8, maxLength: 16, example: "Lama12345" },
+                                        newPassword: { type: "string", minLength: 8, maxLength: 16, example: "Baru12345" },
                                     },
                                 },
                             },
@@ -427,7 +427,7 @@ const options: swaggerJSDoc.Options = {
                                 },
                             },
                         },
-                        400: { description: "Kolom kosong / password baru < 8 karakter / password lama salah", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+                        400: { description: "Kolom kosong / password 8–16 karakter / password lama salah / password sama dengan username", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
                         401: { description: "Tidak terautentikasi", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
                         404: { description: "User tidak ditemukan", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
                         500: { description: "Kesalahan server", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
