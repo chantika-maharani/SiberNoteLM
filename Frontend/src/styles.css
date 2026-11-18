@@ -3184,7 +3184,7 @@ chat-menu-btn:hover {
 
 /* Teks di dalam overlay */
 .drag-drop-content p {
-  color: #fff;
+  color: #cecece80;
   font-size: 1.1rem;
   font-weight: 600;
   pointer-events: none; /* Mencegah teks memblokir event drag */
