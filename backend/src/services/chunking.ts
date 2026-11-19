@@ -61,6 +61,94 @@ const splitBySize = (text: string, maxChars = MAX_CHARS_PER_CHUNK): string[] => 
     return parts
 }
 
+const isBlockStarter = (line: string): boolean => {
+    if (/^[•\-\*]\s+/.test(line)) return true
+    if (/^\d+[\.\)]\s+/.test(line)) return true
+    if (/^\d+(\.\d+)+\s+/.test(line)) return true
+    if (/^(Alasan|Bab|Bagian|Chapter|Catatan|Contoh|Prinsip|Definisi)\b/i.test(line)) return true
+    return false
+}
+
+const isHeadingOrTitle = (line: string): boolean => {
+    if (line.length > 80) return false
+    if (/^\d+(\.\d+)+\s+/.test(line)) return true
+    if (/^\d+[\.\)]\s+[A-Z]/.test(line) && !/(?:dan|yang|atau|dengan|di|ke|dari|pada|untuk|\+)\s*$/i.test(line)) return true
+    if (/^(Alasan|Bab|Bagian|Chapter|Catatan|Contoh|Prinsip)\b/i.test(line)) {
+        if (/(?:dan|yang|atau|dengan|di|ke|dari|pada|untuk|in|and|or|of|the|with|\+)\s*$/i.test(line)) return false
+        return true
+    }
+    return false
+}
+
+export const cleanPdfText = (text: string): string => {
+    if (!text) return ""
+
+    let cleaned = text
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .replace(/\t/g, " ")
+
+    cleaned = cleaned.replace(/(\w+)-\n(\w+)/g, "$1$2")
+
+    const rawLines = cleaned.split("\n").map((l) => l.trim()).filter(Boolean)
+    const blocks: string[] = []
+
+    for (const cur of rawLines) {
+        if (!cur) continue
+        const prev = blocks[blocks.length - 1]
+        if (!prev) {
+            blocks.push(cur)
+            continue
+        }
+
+        if (isBlockStarter(cur)) {
+            blocks.push(cur)
+            continue
+        }
+
+        if (isHeadingOrTitle(prev)) {
+            blocks.push(cur)
+            continue
+        }
+
+        const endsWithTerminal = /[:.?!]$/.test(prev)
+        const endsWithHyphenOrDash = /[—–\-+]$/.test(prev)
+
+        if (!endsWithTerminal || endsWithHyphenOrDash || /^[a-z]/.test(cur)) {
+            blocks[blocks.length - 1] = `${prev} ${cur}`
+        } else {
+            blocks.push(cur)
+        }
+    }
+
+    let result = ""
+    for (let i = 0; i < blocks.length; i++) {
+        const b = blocks[i]
+        if (!b) continue
+        const prev = i > 0 ? blocks[i - 1] : undefined
+
+        if (i === 0 || !prev) {
+            result += b
+            continue
+        }
+
+        const isCurBullet = /^[•\-\*]\s+/.test(b)
+        const isPrevBullet = /^[•\-\*]\s+/.test(prev)
+
+        if (isCurBullet && isPrevBullet) {
+            result += "\n" + b
+        } else if (isHeadingOrTitle(b)) {
+            result += "\n\n" + b
+        } else if (isHeadingOrTitle(prev)) {
+            result += "\n" + b
+        } else {
+            result += "\n\n" + b
+        }
+    }
+
+    return result.replace(/[ \t]+/g, " ").trim()
+}
+
 const pageToChunks = (
     text: string,
     pageNumber: number,
@@ -151,7 +239,8 @@ export const chunkPDF = async (
         let chunkIndex = 0
 
         for (const page of pageResults) {
-            const pageChunks = pageToChunks(page.text, page.pageNumber, documentId, chunkIndex)
+            const cleanedText = cleanPdfText(page.text)
+            const pageChunks = pageToChunks(cleanedText, page.pageNumber, documentId, chunkIndex)
             chunks.push(...pageChunks)
             chunkIndex += pageChunks.length
         }
