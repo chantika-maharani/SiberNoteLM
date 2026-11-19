@@ -3161,8 +3161,7 @@ chat-menu-btn:hover {
 }
 
 /* Saat file sedang diseret di atas kolom (Skenario 1) */
-.source-panel-container.dragging-active {
-  border: 2px dashed #4da6ff; /* Garis tepi putus-putus berwarna biru/aksen */
+.source-panel-container.dragging-active { 
   /* border-radius: 8px; */
   background-color: rgba(77, 166, 255, 0.05); /* Sedikit highlight background */
 }
@@ -3180,12 +3179,13 @@ chat-menu-btn:hover {
   align-items: center;
   justify-content: center;
   border-radius: inherit; /* Mengikuti radius kontainer */
+  border: 3px dashed #635252 !important;
 }
 
 /* Teks di dalam overlay */
 .drag-drop-content p {
   color: #cecece80;
   font-size: 1.1rem;
-  font-weight: 600;
+  font-weight: 400;
   pointer-events: none; /* Mencegah teks memblokir event drag */
 }
