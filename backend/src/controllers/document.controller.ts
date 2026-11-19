@@ -6,7 +6,7 @@ import Document from "../models/document.model.js"
 import Notebook from "../models/notebook.model.js"
 import Chunk from "../models/chunk.model.js"
 import TableOfContents from "../models/toc.model.js"
-import { chunkPDF, chunkPPTX, chunkTXT, chunkDOCX, NoTextError } from "../services/chunking.js"
+import { chunkPDF, chunkPPTX, chunkTXT, chunkDOCX, NoTextError, cleanPdfText } from "../services/chunking.js"
 
 // Minimum total karakter yang harus bisa diekstrak dari dokumen.
 // Di bawah batas ini, dokumen dihapus otomatis setelah parsing.
@@ -307,7 +307,8 @@ export const getDocumentPage = async (req: Request, res: Response) => {
             return response.notFoundError(res, "konten halaman tidak ditemukan")
         }
 
-        const content = chunks.map((c) => c.content).join("\n\n")
+        const rawContent = chunks.map((c) => c.content).join("\n\n")
+        const content = cleanPdfText(rawContent)
 
         return response.requestSuccessWithData(res, "berhasil mendapatkan isi halaman", {
             documentId: doc._id,
