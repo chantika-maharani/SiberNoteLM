@@ -418,7 +418,7 @@ export async function generateFlashcards(notebookId, documentIds, count, token) 
 }
 
 export async function getDocumentPage(documentId, page, accessToken) {
-  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/pages/${page}`, {
+  const res = await fetch(`${BASE_URL}/documents/${documentId}/pages/${page}`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${accessToken}`,

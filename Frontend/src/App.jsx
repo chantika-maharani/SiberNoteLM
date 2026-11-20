@@ -26,6 +26,7 @@ import {
   getChapterSummary,
   generateFlashcards,
   updatePassword,
+  getDocumentPage,
 } from "./api";
 import CreateFlashcardModal from './flashcard_modal';
 import FlashcardPlayer from './flashcarduser';
@@ -1845,6 +1846,15 @@ function DocumentPreview({ previewData, onBack, accessToken }) {
     setLoading(true);
     setError("");
 
+    if (previewData.initialPageData) {
+      const textContent = previewData.initialPageData.content || "Isi dokumen tidak tersedia.";
+      setContent(formatDocumentContent(textContent));
+      setLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     fetchDocumentContent(previewData.messageId, previewData.citationIndex, accessToken)
       .then((res) => {
         if (!cancelled) {
@@ -1864,7 +1874,7 @@ function DocumentPreview({ previewData, onBack, accessToken }) {
     return () => {
       cancelled = true;
     };
-  }, [previewData.messageId, previewData.citationIndex, accessToken]);
+  }, [previewData, accessToken]);
 
   return (
     <div className="source-preview-container">
@@ -1903,8 +1913,8 @@ function SourcesPanel({
   documents,
   uploads,
   sourceError,
-  onPreview,
   onAddFile,
+  onPreview,
   onRename,
   onDelete,
   accessToken
@@ -1918,10 +1928,38 @@ function SourcesPanel({
   const [isDragging, setIsDragging] = useState(false);
   const [dropError, setDropError] = useState("");
 
+  // Fungsi validasi terpusat (Format, Ukuran, dan Duplikat Nama)
+  const processSelectedFile = (file) => {
+    const validExtensions = ["pdf", "pptx", "docx", "txt"];
+    const fileExtension = file.name.split(".").pop().toLowerCase();
+
+    if (!validExtensions.includes(fileExtension)) {
+      setDropError("Format tidak didukung, hanya PDF, PPTX, DOCX, dan TXT");
+      return;
+    }
+
+    const maxSize = 20 * 1024 * 1024; // 20 MB
+    if (file.size > maxSize) {
+      setDropError("Ukuran file melebihi batas maksimal 20 MB");
+      return;
+    }
+
+    const isDuplicate =
+      documents.some((doc) => doc.title === file.name) ||
+      uploads.some((u) => u.name === file.name);
+
+    if (isDuplicate) {
+      setDropError("File dengan nama ini sudah ditambahkan sebelumnya");
+      return;
+    }
+
+    setDropError("");
+    onAddFile(file);
+  };
+
   const handleDragEnter = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    // Hanya aktifkan drag and drop jika panel tidak sedang ditutup/menciut
     if (!collapsed) setIsDragging(true);
   };
 
@@ -1943,57 +1981,33 @@ function SourcesPanel({
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    setDropError(""); // Reset error sebelumnya
+    setDropError("");
 
-    if (collapsed) return; // Abaikan drop jika panel sedang ditutup
+    if (collapsed) return;
 
     const files = e.dataTransfer.files;
-    
     if (files.length === 0) return;
 
-    // Skenario 4: Menolak lebih dari satu file
     if (files.length > 1) {
       setDropError("Unggah satu file dalam satu waktu");
       return;
     }
 
-    const file = files[0];
-
-    // Skenario 3: Validasi Ekstensi/Format
-    const validExtensions = ["pdf", "pptx", "docx", "txt"];
-    const fileExtension = file.name.split('.').pop().toLowerCase();
-    
-    if (!validExtensions.includes(fileExtension)) {
-      setDropError("Format tidak didukung, hanya PDF, PPTX, DOCX, dan TXT");
-      return;
-    }
-
-    // Skenario 3: Validasi Ukuran (Maksimal 20 MB)
-    const maxSize = 20 * 1024 * 1024; // 20 MB dalam bytes
-    if (file.size > maxSize) {
-      setDropError("Ukuran file melebihi batas maksimal 20 MB");
-      return;
-    }
-
-    // Skenario 2: Teruskan ke prop onAddFile bawaan panel ini
-    onAddFile(file); 
+    processSelectedFile(files[0]);
   };
 
-  // Saat ada file baru dikirim, gulung daftar ke atas supaya progress bar-nya terlihat.
   useEffect(() => {
     if (uploads.length > 0 && listRef.current) listRef.current.scrollTop = 0;
   }, [uploads.length]);
 
   function handleFileChange(e) {
     const file = e.target.files?.[0];
-    e.target.value = ""; // supaya file yang sama bisa dipilih lagi
+    e.target.value = "";
     if (file) {
-      setDropError("");
-      onAddFile(file);
+      processSelectedFile(file);
     }
   }
 
-  // Ada error saat panel sedang menyusut (mis. OCR gagal): buka panel supaya pesannya terbaca.
   const collapsedRef = useRef(collapsed);
   const onToggleRef = useRef(onToggle);
   collapsedRef.current = collapsed;
@@ -2002,7 +2016,6 @@ function SourcesPanel({
     if (sourceError && collapsedRef.current) onToggleRef.current();
   }, [sourceError]);
 
-  // Menu memakai posisi "fixed" supaya tidak terpotong daftar yang bisa di-scroll.
   function toggleMenu(e, id) {
     const rect = e.currentTarget.getBoundingClientRect();
     setMenu((current) =>
@@ -2019,16 +2032,15 @@ function SourcesPanel({
   }
 
   return (
-    <section 
-      className={`panel panel-sources${collapsed ? " is-collapsed" : ""}${isDragging ? " dragging-active" : ""}`} 
+    <section
+      className={`panel panel-sources${collapsed ? " is-collapsed" : ""}${isDragging ? " dragging-active" : ""}`}
       aria-label="Sumber"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      style={{ position: 'relative' }} // Penting agar overlay tidak bocor keluar panel
+      style={{ position: "relative" }}
     >
-      {/* Skenario 1: Tampilan Area Lepas saat di-drag */}
       {isDragging && !collapsed && (
         <div className="drag-drop-overlay">
           <div className="drag-drop-content">
@@ -2043,11 +2055,13 @@ function SourcesPanel({
           type="button"
           className="panel-toggle"
           onClick={isPreviewMode ? onClosePreview : onToggle}
-          aria-label={isPreviewMode
+          aria-label={
+            isPreviewMode
               ? "Tutup pratinjau dokumen"
               : collapsed
               ? "Perluas panel Sumber"
-              : "Ciutkan panel Sumber"}
+              : "Ciutkan panel Sumber"
+          }
           aria-expanded={!collapsed}
         >
           {isPreviewMode ? <ClosePreviewIcon /> : <ToggleSidebarIcon />}
@@ -2062,7 +2076,7 @@ function SourcesPanel({
         onChange={handleFileChange}
       />
 
-      {/* Panel menyusut: tombol tambah + satu ikon per file */}
+      {/* Panel menyusut */}
       {collapsed && (
         <ul className="panel-rail" aria-label="Daftar sumber">
           <li>
@@ -2085,7 +2099,7 @@ function SourcesPanel({
                 title={`Mengunggah ${u.name}`}
               >
                 <FileIcon type={u.type} />
-        useEffect      </span>
+              </span>
             </li>
           ))}
           {documents.map((doc) => (
@@ -2118,9 +2132,16 @@ function SourcesPanel({
                 Tambah Sumber +
               </button>
 
-              {/* Skenario 3 & 4: Teks merah persis di bawah area upload jika terjadi error drop */}
               {dropError && (
-                <p className="msg-error" style={{ color: "#E53935", margin: "12px 16px 0 16px", fontSize: "0.9rem", textAlign: "center" }}>
+                <p
+                  className="msg-error"
+                  style={{
+                    color: "#E53935",
+                    margin: "12px 16px 0 16px",
+                    fontSize: "0.9rem",
+                    textAlign: "center",
+                  }}
+                >
                   {dropError}
                 </p>
               )}
@@ -2130,7 +2151,9 @@ function SourcesPanel({
                   <li key={u.id} className="source-item source-item--processing" aria-busy="true">
                     <FileIcon type={u.type} />
                     <div className="source-processing">
-                      <span className="source-title" title={u.name}>{u.name}</span>
+                      <span className="source-title" title={u.name}>
+                        {u.name}
+                      </span>
                       <div
                         className="progress"
                         role="progressbar"
@@ -2149,7 +2172,9 @@ function SourcesPanel({
                     <li key={doc.id} className="source-item source-item--processing" aria-busy="true">
                       <FileIcon type={doc.type} />
                       <div className="source-processing">
-                        <span className="source-title" title={doc.title}>{doc.title}</span>
+                        <span className="source-title" title={doc.title}>
+                          {doc.title}
+                        </span>
                         <div
                           className="progress"
                           role="progressbar"
@@ -2162,15 +2187,44 @@ function SourcesPanel({
                     </li>
                   ) : (
                     <li key={doc.id} className="source-item">
-                      <FileIcon type={doc.type} />
-                      <span className="source-title" title={doc.title}>{doc.title}</span>
+                      {/* Ikon & Judul dapat ditekan untuk pratinjau */}
+                      <div
+                        className="source-item-main"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => onPreview && onPreview(doc)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onPreview && onPreview(doc);
+                          }
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          flex: 1,
+                          minWidth: 0,
+                          cursor: "pointer",
+                        }}
+                      >
+                        <FileIcon type={doc.type} />
+                        <span className="source-title" title={doc.title}>
+                          {doc.title}
+                        </span>
+                      </div>
+
+                      {/* Menu titik tiga diisolasi agar tidak memicu pratinjau */}
                       <button
                         type="button"
                         className="icon-btn"
                         aria-label={`Opsi untuk ${doc.title}`}
                         aria-haspopup="menu"
                         aria-expanded={menu?.id === doc.id}
-                        onClick={(e) => toggleMenu(e, doc.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleMenu(e, doc.id);
+                        }}
                       >
                         ⋮
                       </button>
@@ -2430,7 +2484,6 @@ function WorkspacePage({ notebook, accessToken, profile, onBack, onLogout, onEdi
   const { documents, uploads, sourceError, addFile, renameDocument, removeDocument } =
     useSources({ notebookId: notebook._id, accessToken });
   const [sourcesCollapsed, setSourcesCollapsed] = useState(false);
-  const [previewDoc, setPreviewDoc] = useState(null);
   const [renameDoc, setRenameDoc] = useState(null);
   const [deleteDoc, setDeleteDoc] = useState(null);
 
@@ -2456,7 +2509,6 @@ function WorkspacePage({ notebook, accessToken, profile, onBack, onLogout, onEdi
   // State tampilan panel Sumber: "list" atau "preview"
   const [sumberView, setSumberView] = useState("list"); // "list" | "preview"
   const [activePreview, setActivePreview] = useState(null); // { documentId, documentTitle, fileType, pageStart }
-
   // State untuk fitur Pelajari per Bab
   const [fetchingChapters, setFetchingChapters] = useState(false);
   const [babTerpilih, setBabTerpilih] = useState(() => {
@@ -2506,6 +2558,46 @@ function WorkspacePage({ notebook, accessToken, profile, onBack, onLogout, onEdi
 
     if (sourcesCollapsed) {
       setSourcesCollapsed(false);
+    }
+  }
+
+  async function handleSelectDocumentPreview(doc) {
+    if (doc.parseStatus === "pending") return;
+
+    const docId = doc.id || doc._id;
+
+    if (!navigator.onLine) {
+      notify("Koneksi terputus. Silakan periksa jaringan internet Anda.", "error");
+      return;
+    }
+
+    try {
+      const res = await getDocumentPage(docId, 1, accessToken);
+      const pageData = res?.data;
+
+      setActivePreview({
+        documentId: docId,
+        documentTitle: pageData?.documentTitle || doc.title,
+        fileType: pageData?.fileType || doc.type,
+        pageStart: 1,
+        initialPageData: pageData,
+      });
+      setSumberView("preview");
+
+      if (sourcesCollapsed) {
+        setSourcesCollapsed(false);
+      }
+    } catch (err) {
+      const isNetworkError =
+        !navigator.onLine ||
+        err.name === "TypeError" ||
+        /network|fetch|offline|internet/i.test(err.message);
+
+      if (isNetworkError) {
+        notify("Koneksi terputus. Silakan periksa jaringan internet Anda.", "error");
+      } else {
+        notify(err.message || "Gagal membuka pratinjau dokumen.", "error");
+      }
     }
   }
 
@@ -2719,7 +2811,7 @@ function WorkspacePage({ notebook, accessToken, profile, onBack, onLogout, onEdi
           uploads={uploads}
           sourceError={sourceError}
           onAddFile={addFile}
-          onPreview={setPreviewDoc}
+          onPreview={handleSelectDocumentPreview}
           onRename={setRenameDoc}
           onDelete={setDeleteDoc}
           accessToken={accessToken}
@@ -2890,7 +2982,6 @@ function WorkspacePage({ notebook, accessToken, profile, onBack, onLogout, onEdi
         />
       )}
 
-      {previewDoc && <PreviewDialog doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
       {renameDoc && (
         <RenameDocumentDialog
           doc={renameDoc}
