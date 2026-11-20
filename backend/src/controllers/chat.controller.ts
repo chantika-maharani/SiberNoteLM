@@ -166,7 +166,7 @@ export const getMessages = async (req: Request, res: Response) => {
     }
 }
 
-const MAX_SUMMARY_CHUNKS = 20
+const MAX_SUMMARY_CHUNKS = 25
 
 const buildSummarySourceBlock = (
     chunks: { pageStart: number; pageEnd: number; content: string }[],
