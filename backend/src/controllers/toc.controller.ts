@@ -24,7 +24,7 @@ const doGenerate = async (notebookId: string): Promise<InstanceType<typeof Table
     if (docs.length === 0) {
         throw new Error("422")
     }
-
+    console.log(`[toc] mulai`);
     const chapters = await generateToc(docs)
     const notebookObjectId = new mongoose.Types.ObjectId(notebookId)
 
@@ -65,7 +65,7 @@ export const getToc = async (req: Request, res: Response) => {
         }
 
         const toc = await doGenerate(notebookId)
-
+        console.log(`[toc] selesai`);
         return response.requestSuccessWithData(
             res,
             "berhasil mendapatkan daftar bab",

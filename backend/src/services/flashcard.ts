@@ -217,7 +217,6 @@ export const generateFlashcards = async (
     const chunksByDoc = await fetchChunksSampled(docs)
     const prompt = buildFlashcardPrompt(docs, chunksByDoc, count)
 
-    // attempt 1
     let raw = await generateWithRetry(prompt)
     try {
         return parseAndValidate(raw, docs, count)
@@ -225,7 +224,6 @@ export const generateFlashcards = async (
         console.warn("[flashcard] validasi gagal, retry generate:", (firstErr as Error).message)
     }
 
-    // retry sekali
     raw = await generateWithRetry(prompt)
-    return parseAndValidate(raw, docs, count)  // kalau masih gagal, throw → controller return 500
+    return parseAndValidate(raw, docs, count)  
 }
