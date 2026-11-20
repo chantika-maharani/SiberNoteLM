@@ -1903,6 +1903,7 @@ function SourcesPanel({
   documents,
   uploads,
   sourceError,
+  onPreview,
   onAddFile,
   onRename,
   onDelete,

@@ -417,6 +417,23 @@ export async function generateFlashcards(notebookId, documentIds, count, token) 
   };
 }
 
+export async function getDocumentPage(documentId, page, accessToken) {
+  const res = await fetch(`${API_BASE_URL}/documents/${documentId}/pages/${page}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.message || "Gagal memuat halaman dokumen.");
+  }
+
+  return res.json();
+}
+
 /**
  * GET /documents/:documentId/content?page=:page
  * Mengambil isi teks dokumen hasil OCR/ekstraksi berdasarkan ID dan Halaman.
