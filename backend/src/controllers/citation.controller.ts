@@ -26,7 +26,7 @@ export const getCitation = async (req: Request, res: Response) => {
         if (!citation) {
             return response.notFoundError(res, `citation [${index}] tidak ditemukan di message ini`)
         }
-
+        console.log(`[citation] berhasil ciation`);
         return response.requestSuccessWithData(res, "berhasil get citation", { citation }, 200)
     } catch (error) {
         console.error(error)
