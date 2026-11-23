@@ -10,6 +10,7 @@ export const createNote = async (req:Request, res:Response) => {
             return response.userError(res, "notebookId tidak valid")
         }
         const note = await Note.create({ content, title, notebookId })
+        console.log(`[note] berhasil buat note`);
         response.requestSuccessWithData(res,"berhasil buat note",{note},201)
     } catch (error) {
         response.serverError(res,"gagal create note")
@@ -23,6 +24,7 @@ export const getAllNoteByNotebookId = async (req:Request, res:Response) => {
             return response.userError(res, "notebookId tidak valid")
         }
         const notes = await Note.find({ notebookId })
+        console.log(`[note] dapet semua note`);
         response.requestSuccessWithData(res,"berhasil dapet semua note",{notes},200)
     } catch (error) {
         response.serverError(res,"gagal dapet semua note")
@@ -40,7 +42,7 @@ export const deleteNote = async (req: Request, res: Response) => {
             return response.notFoundError(res,"note tidak ditemukan atau sudah dihapus")
         }
         await Note.findByIdAndDelete(noteId)
-
+        console.log(`[note] berhasil hapus note`);
         response.requestSuccess(res,"berhasil hapus note")
     } catch (error) {
         response.serverError(res,"gagal hapus note")
@@ -57,6 +59,7 @@ export const getNoteById = async(req: Request, res: Response)=>{
         if (!note) {
             return response.notFoundError(res, "note tidak ditemukan")
         }
+        console.log(`[note] dapet note`);
         response.requestSuccessWithData(res, "berhasil dapet note", { note }, 200)
     } catch (error) {
         response.serverError(res,"gagal dapet note by id")
@@ -82,6 +85,7 @@ export const updateNote = async (req: Request, res: Response) => {
         if (!note) {
             return response.notFoundError(res,"note tidak ditemukan")
         }
+        console.log(`[note] update note`);
         response.requestSuccessWithData(res, "berhasil update note", { note }, 200)
     } catch (error) {
         response.serverError(res,"gagal update note")
