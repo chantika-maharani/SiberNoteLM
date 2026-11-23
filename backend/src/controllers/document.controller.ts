@@ -11,6 +11,7 @@ import { chunkPDF, chunkPPTX, chunkTXT, chunkDOCX, NoTextError, cleanPdfText } f
 const MIN_CONTENT_CHARS = 50
 import response from "../utils/response.js"
 import envVariable from "../utils/ENV.js"
+import Message from "../models/message.model.js"
 
 type FileType = "pdf" | "pptx" | "txt" | "docx"
 
@@ -276,17 +277,42 @@ export const updateDocument = async (req: Request, res: Response) => {
 
         const document = await Document.findByIdAndUpdate(
             documentId,
-            { title: name },
+            { $set: { title: name } },
             { returnDocument: "after" },
         )
+
         if (!document) {
             return response.notFoundError(res, "document ga ketemu")
         }
-        return response.requestSuccessWithData(res, "berhasil update document", { document }, 200)
+
+        await Message.updateMany(
+            {
+                "citations.documentId": document._id,
+            },
+            {
+                $set: {
+                    "citations.$[citation].documentTitle": name,
+                },
+            },
+            {
+                arrayFilters: [
+                    { "citation.documentId": document._id },
+                ],
+            },
+        )
+
+        return response.requestSuccessWithData(
+            res,
+            "berhasil update document",
+            { document },
+            200,
+        )
     } catch (error) {
+        console.error("Update document error:", error)
         return response.serverError(res, "gagal update dokumen")
     }
 }
+
 
 export const getDocumentPage = async (req: Request, res: Response) => {
     try {

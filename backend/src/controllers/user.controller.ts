@@ -43,7 +43,7 @@ export const registerUser = async (req: Request, res: Response) => {
         const accessToken = signAccessToken(user._id.toString())
         const refreshToken = signRefreshToken(user._id.toString())
         await saveRefreshToken(user._id.toString(), refreshToken)
-
+        console.log(`[user] reqister user`);
         return response.requestSuccessWithData(res, "berhasil buat user", { accessToken, refreshToken }, 201)
     } catch (error) {
         return response.serverError(res, "gagal register user")
@@ -64,7 +64,7 @@ export const loginUser = async (req: Request, res: Response) => {
         const accessToken = signAccessToken(user._id.toString())
         const refreshToken = signRefreshToken(user._id.toString())
         await saveRefreshToken(user._id.toString(), refreshToken)
-
+        console.log(`[user] user login`);
         return response.requestSuccessWithData(res, "berhasil login", { accessToken, refreshToken }, 200)
     } catch (error) {
         return response.serverError(res, "gagal login user")
@@ -96,6 +96,7 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
         }
 
         const accessToken = signAccessToken(payload.userId)
+        console.log(`[user] refresh token`);
 
         return response.requestSuccessWithData(res, "access token berhasil diperbarui", { accessToken }, 200)
     } catch (error) {
@@ -114,7 +115,7 @@ export const logoutUser = async (req: Request, res: Response) => {
         }
 
         await RefreshToken.deleteOne({ token: refreshToken })
-
+        console.log(`[user] user logout`);
         return response.requestSuccessWithData(res, "berhasil logout", {}, 200)
     } catch (error) {
         return response.serverError(res, "gagal logout")
@@ -134,7 +135,7 @@ export const getUser = async (req: Request, res: Response) => {
         if (!user) {
             return response.notFoundError(res, "user tidak ketemu")
         }
-
+        console.log(`[user] dapet user`);
         return response.requestSuccessWithData(res, "berhasil get data user", { user }, 200)
     } catch (error) {
         return response.serverError(res, "gagal get data user")
@@ -175,6 +176,7 @@ export const updateUsernameOravatarUser = async(req: Request, res: Response)=>{
         }
 
         const user = await User.findByIdAndUpdate(userId, updateData, { returnDocument: "after" }).select("-password")
+        console.log(`[user] update user`);
         return response.requestSuccessWithData(res, "Profil berhasil diperbarui", { user }, 200)
     } catch (error) {
         console.error(error)
@@ -205,6 +207,7 @@ export const updateUserPassword = async(req: Request, res: Response)=>{
         }
         const hashedNewPassword = await hashPassword(newPassword)
         const updatedUser = await User.findByIdAndUpdate(userId,{password:hashedNewPassword})
+        console.log(`[user] update password`);
         return response.requestSuccess(res,"Password berhasil diperbarui")
     }
     catch (error) {

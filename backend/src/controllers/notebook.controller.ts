@@ -19,6 +19,7 @@ export const createNotebook = async (req: Request, res: Response) => {
     }
 
     const notebook = await Notebook.create({ description, title, userId });
+    console.log(`[notebook] notebook dibuat`);
     return response.requestSuccessWithData(
       res,
       "berhasil buat notebook",
@@ -36,15 +37,15 @@ export const getAllNotebookUser = async (req: Request, res: Response) => {
     const userId = req.userId;
     const sortBy = req.query.sortBy;
 
-const sort: Record<string, 1 | -1> = {
-  isPinned: -1,
-};
+    const sort: Record<string, 1 | -1> = {
+      isPinned: -1,
+    };
 
-if (sortBy === "title") {
-  sort.title = 1; 
-} else {
-  sort.createdAt = -1; 
-}
+    if (sortBy === "title") {
+      sort.title = 1; 
+    } else {
+      sort.createdAt = -1; 
+    }
 
     if (!userId) {
       return response.userError(res, "tidak terautentikasi");
@@ -82,6 +83,7 @@ if (sortBy === "title") {
       .limit(limit);
 
     const totalPages = Math.ceil(count / limit);
+    console.log(`[notebook] dapet semua notebook`);
     return response.requestSuccessWithData(
       res,
       "berhasil mendapatkan semua notebook user",
@@ -145,7 +147,7 @@ export const deleteNotebook = async (req: Request, res: Response) => {
     await Message.deleteMany({ notebookId: notebook._id });
     await TableOfContents.deleteOne({ notebookId: notebook._id });
     await notebook.deleteOne();
-
+    console.log(`[notebook] hapus notebook`);
     return response.requestSuccess(res, "berhasil hapus notebook");
   } catch (error) {
     console.error(error);
@@ -166,6 +168,8 @@ export const getNotebookById = async (req: Request, res: Response) => {
     }
     const notes = await Note.find({ notebookId });
     const documents = await Document.find({ notebookId });
+    console.log(`[notebok] dapet notebook`);
+  
     response.requestSuccessWithData(
       res,
       "berhasil dapet notebook",
@@ -192,6 +196,7 @@ export const pinNotebook = async (req: Request, res: Response) => {
     if (!notebook) {
       return response.notFoundError(res, "notebook tidak ditemukan");
     }
+    console.log(`[notebook] pin notebook`);
     response.requestSuccessWithData(
       res,
       "berhasil pin notebook",
@@ -226,6 +231,7 @@ export const updateNotebook = async (req: Request, res: Response) => {
     if (!notebook) {
       return response.notFoundError(res, "notebook tidak ditemukan");
     }
+    console.log(`[notebook] update notebook`);
     response.requestSuccessWithData(
       res,
       "berhasil update notebook",
