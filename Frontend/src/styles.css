@@ -12,6 +12,15 @@
   --error: #b81b1b;
   --success: #1BB81B;
   --font: "Poppins", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --landing-bg: #1a1c1d;
+  --landing-bg-alt: #222526;
+  --landing-card-bg: #272a2c;
+  --landing-border: #3a3e40;
+  --logo-blue-dark: #0038AD;
+  --logo-blue-mid: #0058AD;
+  --logo-blue-light: #0078AD;
+  --landing-text: #f3f4f6;
+  --landing-text-muted: #b0b5b9;
 }
 
 *,
@@ -48,7 +57,6 @@ body {
   border-radius: 50%;
   border: 1px solid #6a6a6a;
   background: #2b2b2b;
-  display: grid;
   place-items: center;
   font-size: 8px;
   color: var(--text-muted);
@@ -3188,4 +3196,264 @@ chat-menu-btn:hover {
   font-size: 1.1rem;
   font-weight: 400;
   pointer-events: none; /* Mencegah teks memblokir event drag */
+}
+
+.landing-page {
+  min-height: 100vh;
+  background-color: var(--landing-bg);
+  color: var(--landing-text);
+  font-family: inherit;
+}
+
+/* Header */
+.landing-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background-color: var(--landing-bg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.landing-header-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.landing-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Tombol Aksi */
+.btn-landing-outline {
+  background: transparent;
+  color: var(--landing-text);
+  border: 1.5px solid var(--logo-blue-light);
+  padding: 8px 22px;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.btn-landing-outline:hover {
+  background-color: rgba(0, 120, 173, 0.15);
+  border-color: var(--logo-blue-mid);
+}
+
+.btn-landing-primary {
+  background-color: var(--logo-blue-light);
+  color: #ffffff;
+  border: 1.5px solid var(--logo-blue-light);
+  padding: 8px 24px;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.btn-landing-primary:hover {
+  background-color: var(--logo-blue-mid);
+  border-color: var(--logo-blue-mid);
+}
+
+.btn-landing-cta {
+  padding: 12px 32px;
+  font-size: 1rem;
+  margin-top: 8px;
+}
+
+/* Sections & Container */
+.landing-section {
+  padding: 72px 24px;
+  background-color: var(--landing-bg);
+}
+
+.landing-section--alt {
+  background-color: var(--landing-bg-alt);
+}
+
+.landing-container {
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+/* Hero */
+.landing-hero {
+  text-align: center;
+  padding: 96px 24px 88px;
+}
+
+.landing-hero-title {
+  font-size: clamp(2.25rem, 5vw, 3.25rem);
+  font-weight: 700;
+  margin: 0 0 20px;
+  letter-spacing: -0.02em;
+}
+
+.landing-hero-desc {
+  max-width: 620px;
+  margin: 0 auto 28px;
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: var(--landing-text-muted);
+}
+
+/* Section Headings */
+.landing-section-title {
+  text-align: center;
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+  font-weight: 700;
+  margin: 0 0 10px;
+}
+
+.landing-section-sub {
+  text-align: center;
+  font-size: 1rem;
+  color: var(--landing-text-muted);
+  margin: 0 0 44px;
+}
+
+/* Grid Layouts */
+.landing-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.landing-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+/* Cards */
+.landing-card {
+  background-color: var(--landing-card-bg);
+  border: 1px solid var(--landing-border);
+  border-radius: 12px;
+  padding: 22px;
+}
+
+.landing-card--workspace {
+  min-height: 148px;
+}
+
+.landing-card-title {
+  color: var(--logo-blue-light);
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.landing-card-desc {
+  color: var(--landing-text-muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Survey Stat Cards */
+.landing-card--stat {
+  text-align: center;
+  padding: 28px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.landing-stat-number {
+  color: var(--logo-blue-light);
+  font-size: 2.15rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+  line-height: 1.1;
+}
+
+/* Feature Cards & Icon */
+.landing-card--feature {
+  min-height: 140px;
+}
+
+.landing-feature-icon {
+  color: var(--logo-blue-light);
+  margin-bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Cara Kerja / Steps */
+.landing-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+}
+
+.landing-step-item {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.landing-step-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background-color: var(--logo-blue-dark);
+  border: 2px solid var(--logo-blue-mid);
+  color: #ffffff;
+  font-size: 1.25rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.landing-step-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 6px;
+  color: var(--landing-text);
+}
+
+.landing-step-sub {
+  font-size: 0.88rem;
+  color: var(--landing-text-muted);
+  margin: 0;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .landing-grid-3,
+  .landing-grid-4,
+  .landing-steps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .landing-grid-3,
+  .landing-grid-4,
+  .landing-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-header-inner {
+    padding: 12px 16px;
+  }
 }

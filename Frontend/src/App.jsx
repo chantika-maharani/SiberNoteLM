@@ -32,6 +32,7 @@ import CreateFlashcardModal from './flashcard_modal';
 import FlashcardPlayer from './flashcarduser';
 import { NotesPanel, useNotes } from "./NotesPanel";
 import ReactMarkdown from "react-markdown";
+import { LandingPage } from './landingpage';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const USERNAME_RE = /^[a-zA-Z0-9_-]{1,16}$/;
@@ -3506,6 +3507,36 @@ export default function App() {
 
   // true selama aplikasi menukar refresh token dengan accessToken baru (hanya kalau ada refresh token).
   const [booting, setBooting] = useState(() => Boolean(getRefreshToken()));
+
+  const [authView, setAuthView] = useState("landing"); // "landing" | "login" | "register"
+
+  // Saat user belum login:
+  if (!accessToken) {
+    if (authView === "login") {
+      return (
+        <LoginPage
+          onSuccess={handleAuthSuccess}
+          onSwitchToRegister={() => setAuthView("register")}
+          onBackToLanding={() => setAuthView("landing")}
+        />
+      );
+    }
+    if (authView === "register") {
+      return (
+        <RegisterPage
+          onSuccess={handleAuthSuccess}
+          onSwitchToLogin={() => setAuthView("login")}
+          onBackToLanding={() => setAuthView("landing")}
+        />
+      );
+    }
+    return (
+      <LandingPage
+        onNavigateLogin={() => setAuthView("login")}
+        onNavigateRegister={() => setAuthView("register")}
+      />
+    );
+  }
 
   // Saat aplikasi dibuka/di-refresh: kalau ada refresh token, pulihkan sesi dan halaman terakhir.
   useEffect(() => {
