@@ -3510,34 +3510,6 @@ export default function App() {
 
   const [authView, setAuthView] = useState("landing"); // "landing" | "login" | "register"
 
-  // Saat user belum login:
-  if (!accessToken) {
-    if (authView === "login") {
-      return (
-        <LoginPage
-          onSuccess={handleAuthSuccess}
-          onSwitchToRegister={() => setAuthView("register")}
-          onBackToLanding={() => setAuthView("landing")}
-        />
-      );
-    }
-    if (authView === "register") {
-      return (
-        <RegisterPage
-          onSuccess={handleAuthSuccess}
-          onSwitchToLogin={() => setAuthView("login")}
-          onBackToLanding={() => setAuthView("landing")}
-        />
-      );
-    }
-    return (
-      <LandingPage
-        onNavigateLogin={() => setAuthView("login")}
-        onNavigateRegister={() => setAuthView("register")}
-      />
-    );
-  }
-
   // Saat aplikasi dibuka/di-refresh: kalau ada refresh token, pulihkan sesi dan halaman terakhir.
   useEffect(() => {
     if (!getRefreshToken()) return undefined;
@@ -3594,6 +3566,7 @@ export default function App() {
     setAccessToken(null);
     setActiveNotebook(null);
     setNotice("");
+    setAuthView("landing");
     setView("login");
   }
 
@@ -3619,6 +3592,38 @@ export default function App() {
   }
 
   function renderView() {
+    if (!accessToken) {
+      if (authView === "landing") {
+        return (
+          <LandingPage
+            onNavigateLogin={() => setAuthView("login")}
+            onNavigateRegister={() => setAuthView("register")}
+          />
+        );
+      }
+
+      return (
+        <>
+          <Header />
+          {authView === "register" ? (
+            <RegisterPage
+              goLogin={() => setAuthView("login")}
+              onRegistered={() => setAuthView("login")}
+            />
+          ) : (
+            <LoginPage
+              notice={notice}
+              goRegister={() => {
+                setNotice("");
+                setAuthView("register");
+              }}
+              onLoginSuccess={handleLoginSuccess}
+            />
+          )}
+        </>
+      );
+    }
+
     if (view === "edit-password" && accessToken && profile) {
       return (
         <EditPasswordPage
