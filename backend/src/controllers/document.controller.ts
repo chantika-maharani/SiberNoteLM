@@ -8,11 +8,10 @@ import Chunk from "../models/chunk.model.js"
 import TableOfContents from "../models/toc.model.js"
 import { chunkPDF, chunkPPTX, chunkTXT, chunkDOCX, NoTextError, cleanPdfText } from "../services/chunking.js"
 
-// Minimum total karakter yang harus bisa diekstrak dari dokumen.
-// Di bawah batas ini, dokumen dihapus otomatis setelah parsing.
 const MIN_CONTENT_CHARS = 50
 import response from "../utils/response.js"
 import envVariable from "../utils/ENV.js"
+import Message from "../models/message.model.js"
 
 type FileType = "pdf" | "pptx" | "txt" | "docx"
 
@@ -30,11 +29,6 @@ const MIME_TO_EXT: Record<string, string> = {
     "text/plain": "txt",
 }
 
-/**
- * Simpan buffer file ke disk dan kembalikan URL publiknya.
- * Folder: {UPLOADS_DIR}/documents/{userId}/{notebookId}/
- * URL:    {UPLOAD_BASE_URL}/documents/{userId}/{notebookId}/{filename}.{ext}
- */
 const saveFileToDisk = (
     buffer: Buffer,
     baseName: string,
@@ -53,9 +47,31 @@ const saveFileToDisk = (
     const filePath = path.join(dir, filename)
     fs.writeFileSync(filePath, buffer)
 
-    // Normalise UPLOAD_BASE_URL (hapus trailing slash)
     const base = envVariable.UPLOAD_BASE_URL.replace(/\/$/, "")
     return `${base}/documents/${userId}/${notebookId}/${filename}`
+}
+
+export const generateUniqueFileName = async (
+    notebookId: string,
+    originalName: string
+): Promise<string> => {
+    const extension = originalName.match(/\.[^.]+$/)?.[0] ?? ""
+    const baseName = originalName.replace(/\.[^.]+$/, "")
+
+    let newName = originalName
+    let counter = 1
+
+    while (
+        await Document.exists({
+            notebookId,
+            title: newName.replace(/\.[^.]+$/, ""),  
+        })
+    ) {
+        newName = `${baseName} (${counter})${extension}`
+        counter++
+    }
+
+    return newName
 }
 
 // ── upload document ──────────────────────────────────────────────────────────
@@ -88,13 +104,23 @@ export const uploadDocument = async (req: Request, res: Response) => {
         if (!fileType) {
             return response.userError(res, "Format tidak didukung, hanya PDF, PPTX, DOCX, dan TXT")
         }
+        const originalBaseName = originalname
+        .replace(/\.[^.]+$/, "")
+        .replace(/\s+/g, "_")
+        
+        const extension = originalname.match(/\.[^.]+$/)?.[0] ?? ""
 
-        const baseName = originalname.replace(/\.[^.]+$/, "").replace(/\s+/g, "_")
+        const uniqueFileName = await generateUniqueFileName(
+            notebookId,
+            `${originalBaseName}${extension}`
+        )
+
+        const baseName = uniqueFileName.replace(/\.[^.]+$/, "")
+
         const fileUrl = saveFileToDisk(buffer, baseName, mimetype, userId, notebookId)
 
         const notebookObjectId = new mongoose.Types.ObjectId(notebookId)
 
-        // simpan dokumen dengan status "pending"
         const doc = await Document.create({
             notebookId: notebookObjectId,
             title: baseName,
@@ -251,17 +277,42 @@ export const updateDocument = async (req: Request, res: Response) => {
 
         const document = await Document.findByIdAndUpdate(
             documentId,
-            { title: name },
+            { $set: { title: name } },
             { returnDocument: "after" },
         )
+
         if (!document) {
             return response.notFoundError(res, "document ga ketemu")
         }
-        return response.requestSuccessWithData(res, "berhasil update document", { document }, 200)
+
+        await Message.updateMany(
+            {
+                "citations.documentId": document._id,
+            },
+            {
+                $set: {
+                    "citations.$[citation].documentTitle": name,
+                },
+            },
+            {
+                arrayFilters: [
+                    { "citation.documentId": document._id },
+                ],
+            },
+        )
+
+        return response.requestSuccessWithData(
+            res,
+            "berhasil update document",
+            { document },
+            200,
+        )
     } catch (error) {
+        console.error("Update document error:", error)
         return response.serverError(res, "gagal update dokumen")
     }
 }
+
 
 export const getDocumentPage = async (req: Request, res: Response) => {
     try {

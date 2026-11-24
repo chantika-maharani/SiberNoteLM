@@ -7,8 +7,6 @@ import { processPageTexts } from "./ocr.js"
 
 const MAX_CHARS_PER_CHUNK = 3000
 const MAX_CHARS_PER_CHUNK_DOCX = 6000
-// Batas atas teks DOCX yang boleh dikirim sebagai satu chunk tunggal ke Gemini
-// (~15.000 karakter ≈ ~4.000 token — masih aman untuk model Gemini Flash)
 const MAX_SINGLE_CHUNK_DOCX = 15_000
 const MIN_OCR_CHARS = 30
 

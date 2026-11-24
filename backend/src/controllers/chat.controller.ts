@@ -153,6 +153,7 @@ export const getMessages = async (req: Request, res: Response) => {
         const messages = await Message.find({ notebookId })
             .sort({ createdAt: 1 })
             .lean()
+        console.log(`[chat] dapet semua chat`);
 
         return response.requestSuccessWithData(
             res,
@@ -166,7 +167,7 @@ export const getMessages = async (req: Request, res: Response) => {
     }
 }
 
-const MAX_SUMMARY_CHUNKS = 20
+const MAX_SUMMARY_CHUNKS = 25
 
 const buildSummarySourceBlock = (
     chunks: { pageStart: number; pageEnd: number; content: string }[],
@@ -251,7 +252,7 @@ export const createChapterSummary = async (req: Request, res: Response) => {
                 422,
             )
         }
-
+        console.log(`[summary] simpen chat user`);
         // simpan pesan user
         const userContent = `Buatkan ringkasan Bab ${chapterTitle} (hlm. ${pageStart}–${pageEnd}) dari ${doc.title}`
         const userMessage = await Message.create({
@@ -270,11 +271,11 @@ export const createChapterSummary = async (req: Request, res: Response) => {
             doc.title,
             rawChunks,
         )
-
+        console.log(`[summary] kirim llm`);
         // panggil Gemini tanpa history — ringkasan tidak butuh konteks percakapan
         const result = await summaryModel.generateContent(summaryPrompt)
         const responseText = result.response.text()
-
+        console.log(`[summary] selesai generate summary`);
         // parse + re-number citations
         const citationRegex = /\[(\d+)\]/g
         const foundIndices = new Set<number>()
@@ -318,7 +319,7 @@ export const createChapterSummary = async (req: Request, res: Response) => {
             citations,
             sourceType: "document",
         })
-
+        console.log(`[summary] selesai buat summaey`);
         return response.requestSuccessWithData(
             res,
             "berhasil membuat ringkasan bab",
