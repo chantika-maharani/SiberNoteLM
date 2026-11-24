@@ -55,6 +55,46 @@ Payload JWT: `{ userId: string }`
 
 ---
 
+## Health Check
+
+### Basic Health Check
+
+Memeriksa apakah server berjalan normal.
+
+```
+GET /
+```
+
+**Response `200 OK`**
+```json
+{
+  "status": "success",
+  "message": "server healthy"
+}
+```
+
+---
+
+### System & Container Health Check
+
+Pemeriksaan status kesehatan sistem untuk Docker / Kubernetes.
+
+```
+GET /health
+```
+
+**Response `200 OK`**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-11-24T07:30:00.000Z",
+  "uptime": 3600.5,
+  "environment": "development"
+}
+```
+
+---
+
 ## Auth
 
 ### Register
@@ -1198,7 +1238,7 @@ GET /documents/status/:documentId
 
 ### Get Document Page
 
-Mengambil isi satu halaman dokumen. Untuk PDF dan PPTX, halaman merujuk ke halaman fisik atau slide asli. Untuk DOCX dan TXT, halaman merujuk ke potongan 3000 karakter (halaman 2 = karakter 3001–6000).
+Mengambil isi satu halaman dokumen. Untuk PDF dan PPTX, halaman merujuk ke halaman fisik atau slide asli. Untuk DOCX dan TXT, halaman merujuk ke potongan 3000 karakter (halaman 2 = karakter 3001–6000). Konten teks yang dikembalikan sudah dinormalisasi dan dirapikan secara otomatis (soft line-breaks disatukan, kata terpotong tanda hubung digabungkan kembali, serta format heading dan bullet points terjaga rapi).
 
 ```
 GET /documents/:documentId/pages/:page
@@ -1649,7 +1689,7 @@ Dua pesan disimpan ke riwayat — pesan user dan jawaban AI.
 
 ## Flashcard
 
-Membuat set flashcard dari dokumen yang dipilih. Cache dikembalikan jika `documentIds` dan `count` sama. Set baru di-generate jika berbeda.
+Membuat set flashcard baru dari dokumen yang dipilih (3, 5, 7, atau 10 kartu). Set baru di-generate secara on-demand via Gemini tanpa caching.
 
 ```
 POST /notebooks/:notebookId/flashcards
