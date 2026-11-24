@@ -1805,34 +1805,29 @@ function X() {
 
 
 function DocumentPreview({ previewData, onBack, accessToken }) {
-  const [content, setContent] = useState("");
+  const [pages, setPages] = useState([]);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [loadingNext, setLoadingNext] = useState(false);
   const [error, setError] = useState("");
-
+  const scrollContainerRef = useRef(null);
+  const loadingRef = useRef(false);
 
   const cleanTitle = (title) => {
     if (!title) return "";
     return title.replace(/_/g, " ").replace(/\s+/g, " ").trim();
   };
 
-  // Helper untuk merapikan baris/poin teks dari backend
   const formatDocumentContent = (text) => {
     if (!text) return "";
-
-    // 1. Bersihkan spasi berlebih per baris
-    let lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-
-    let formattedParagraphs = [];
-    let temp = [];
+    const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+    const temp = [];
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-
-      // Jika baris berisi angka urutan (misal "1", "2", "3") dan baris berikutnya adalah judul poin (misal "SaaS")
       if (/^\d+$/.test(line) && lines[i + 1]) {
-        // Gabungkan angka dengan judul poinnya, contoh: "1. SaaS"
         temp.push(`\n${line}. ${lines[i + 1]}`);
-        i++; // lewati baris berikutnya karena sudah digabung
+        i++;
       } else {
         temp.push(line);
       }
@@ -1841,27 +1836,45 @@ function DocumentPreview({ previewData, onBack, accessToken }) {
     return temp.join("\n");
   };
 
-
+  // 1. Muat halaman awal (dari daftar Sumber atau dari tag sitasi)
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     setError("");
+    setPages([]);
 
+    // Jika dibuka dari klik nama dokumen di daftar Sumber (sudah bawa data halaman 1)
     if (previewData.initialPageData) {
-      const textContent = previewData.initialPageData.content || "Isi dokumen tidak tersedia.";
-      setContent(formatDocumentContent(textContent));
+      setPages([previewData.initialPageData]);
+      setTotalPages(previewData.initialPageData.totalPages || 1);
       setLoading(false);
+      loadingRef.current = false;
       return () => {
         cancelled = true;
       };
     }
 
-    fetchDocumentContent(previewData.messageId, previewData.citationIndex, accessToken)
+    // Jika dibuka dari tag sitasi [1] di Chat AI
+    setLoading(true);
+    loadingRef.current = true;
+    const startPage = previewData.pageStart || 1;
+
+    getDocumentPage(previewData.documentId, startPage, accessToken)
       .then((res) => {
-        if (!cancelled) {
-          const textContent = res?.data?.citation?.chunkContent || "Isi dokumen tidak tersedia.";
-          setContent(formatDocumentContent(textContent));
+        if (!cancelled && res?.data) {
+          setPages([res.data]);
+          setTotalPages(res.data.totalPages || 1);
         }
+      })
+      .catch(() => {
+        // Fallback ke endpoint sitasi jika documentId belum berbentuk ObjectId
+        return fetchDocumentContent(previewData.messageId, previewData.citationIndex, accessToken)
+          .then((res) => {
+            if (!cancelled) {
+              const textContent = res?.data?.citation?.chunkContent || "Isi dokumen tidak tersedia.";
+              setPages([{ page: startPage, totalPages: startPage, content: textContent }]);
+              setTotalPages(startPage);
+            }
+          });
       })
       .catch((err) => {
         if (!cancelled) {
@@ -1869,7 +1882,10 @@ function DocumentPreview({ previewData, onBack, accessToken }) {
         }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          loadingRef.current = false;
+        }
       });
 
     return () => {
@@ -1877,30 +1893,95 @@ function DocumentPreview({ previewData, onBack, accessToken }) {
     };
   }, [previewData, accessToken]);
 
+  // 2. Fungsi memuat halaman berikutnya secara berurutan (halaman 2 .. totalPages)
+  const loadNextPage = useCallback(async () => {
+    if (loadingRef.current || pages.length === 0) return;
+
+    const lastLoadedPage = pages[pages.length - 1].page;
+    if (lastLoadedPage >= totalPages) return;
+
+    const nextPage = lastLoadedPage + 1;
+    loadingRef.current = true;
+    setLoadingNext(true);
+
+    try {
+      const res = await getDocumentPage(previewData.documentId, nextPage, accessToken);
+      if (res?.data) {
+        setPages((prev) => {
+          if (prev.some((p) => p.page === res.data.page)) return prev;
+          return [...prev, res.data];
+        });
+        setTotalPages(res.data.totalPages || totalPages);
+      }
+    } catch (err) {
+      setError(
+        !navigator.onLine || err.name === "TypeError"
+          ? "Koneksi terputus. Silakan periksa jaringan internet Anda."
+          : "Gagal memuat halaman berikutnya."
+      );
+    } finally {
+      loadingRef.current = false;
+      setLoadingNext(false);
+    }
+  }, [pages, totalPages, previewData.documentId, accessToken]);
+
+  // 3. Deteksi saat user menggulir ke bawah
+  const handleScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 120) {
+      loadNextPage();
+    }
+  };
+
+  // 4. Jika halaman 1 pendek dan belum memunculkan scrollbar, otomatis muat halaman 2
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el || loading || loadingNext || pages.length === 0) return;
+    const lastPage = pages[pages.length - 1].page;
+    if (lastPage < totalPages && el.scrollHeight <= el.clientHeight) {
+      loadNextPage();
+    }
+  }, [pages, totalPages, loading, loadingNext, loadNextPage]);
+
   return (
-    <div className="source-preview-container">
-      {/* Judul Dokumen */}
+    <div
+      className="source-preview-container"
+      ref={scrollContainerRef}
+      onScroll={handleScroll}
+      style={{ overflowY: "auto", flex: 1, minHeight: 0 }}
+    >
       <h3 className="source-preview-doc-title" title={previewData.documentTitle}>
         {cleanTitle(previewData.documentTitle)}
       </h3>
 
-      {/* Info Halaman */}
-      <div className="source-preview-page-info">
-        Halaman {previewData.pageStart || 1}
-      </div>
+      {loading ? (
+        <p className="empty-state">Memuat isi halaman...</p>
+      ) : (
+        <>
+          {pages.map((item) => (
+            <div key={item.page} style={{ marginBottom: "24px" }}>
+              <div className="source-preview-page-info">
+                {previewData.fileType === "pptx"
+                  ? `Slide ${item.page} dari ${totalPages}`
+                  : `Halaman ${item.page} dari ${totalPages}`}
+              </div>
+              <div className="source-preview-content">
+                <div className="source-preview-quote" style={{ whiteSpace: "pre-wrap" }}>
+                  "{formatDocumentContent(item.content || "Isi dokumen tidak tersedia.")}"
+                </div>
+              </div>
+            </div>
+          ))}
 
-      {/* Teks Isi Dokumen */}
-      <div className="source-preview-content">
-        {loading ? (
-          <p className="empty-state">Memuat isi halaman...</p>
-        ) : error ? (
-          <p className="msg-error">{error}</p>
-        ) : (
-          <div className="source-preview-quote">
-            "{content}"
-          </div>
-        )}
-      </div>
+          {loadingNext && (
+            <p className="empty-state" role="status">
+              Memuat halaman berikutnya...
+            </p>
+          )}
+
+          {error && <p className="msg-error">{error}</p>}
+        </>
+      )}
     </div>
   );
 }
