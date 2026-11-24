@@ -148,9 +148,96 @@ const options: swaggerJSDoc.Options = {
                         createdAt: { type: "string", format: "date-time" },
                     },
                 },
+                // ─── toc ──────────────────────────────────────────────────
+                Chapter: {
+                    type: "object",
+                    properties: {
+                        chapterNumber: { type: "number", example: 1 },
+                        title: { type: "string", example: "Pendahuluan" },
+                        pageStart: { type: "number", example: 1 },
+                        pageEnd: { type: "number", example: 10 },
+                        documentId: { type: "string", example: "665f1a2b3c4d5e6f7a8b9c0f" },
+                        documentTitle: { type: "string", example: "Basis Data.pdf" },
+                    },
+                },
+                TableOfContents: {
+                    type: "object",
+                    properties: {
+                        _id: { type: "string", example: "665f1a2b3c4d5e6f7a8b9c30" },
+                        notebookId: { type: "string", example: "665f1a2b3c4d5e6f7a8b9c0e" },
+                        chapters: {
+                            type: "array",
+                            items: { $ref: "#/components/schemas/Chapter" },
+                        },
+                        generatedAt: { type: "string", format: "date-time" },
+                        createdAt: { type: "string", format: "date-time" },
+                        updatedAt: { type: "string", format: "date-time" },
+                    },
+                },
+                // ─── flashcard ────────────────────────────────────────────
+                Flashcard: {
+                    type: "object",
+                    properties: {
+                        front: { type: "string", example: "Apa itu normalisasi?" },
+                        back: { type: "string", example: "Normalisasi adalah proses pengelompokan atribut..." },
+                        documentId: { type: "string", example: "665f1a2b3c4d5e6f7a8b9c0f" },
+                        documentTitle: { type: "string", example: "Basis Data.pdf" },
+                        pageStart: { type: "number", example: 12 },
+                        pageEnd: { type: "number", example: 12 },
+                    },
+                },
             },
         },
         paths: {
+            // ═══════════════════════════════════════════════════════════════
+            // HEALTH
+            // ═══════════════════════════════════════════════════════════════
+            "/": {
+                get: {
+                    tags: ["Health"],
+                    summary: "Health check server dasar",
+                    responses: {
+                        200: {
+                            description: "Server berjalan normal",
+                            content: {
+                                "application/json": {
+                                    schema: {
+                                        type: "object",
+                                        properties: {
+                                            status: { type: "string", example: "success" },
+                                            message: { type: "string", example: "server healthy" },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            "/health": {
+                get: {
+                    tags: ["Health"],
+                    summary: "Health check untuk Docker / Kubernetes",
+                    responses: {
+                        200: {
+                            description: "Status uptime dan lingkungan server",
+                            content: {
+                                "application/json": {
+                                    schema: {
+                                        type: "object",
+                                        properties: {
+                                            status: { type: "string", example: "healthy" },
+                                            timestamp: { type: "string", format: "date-time" },
+                                            uptime: { type: "number", example: 1234.56 },
+                                            environment: { type: "string", example: "development" },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
             // ═══════════════════════════════════════════════════════════════
             // AUTH
             // ═══════════════════════════════════════════════════════════════
@@ -197,7 +284,7 @@ const options: swaggerJSDoc.Options = {
                             },
                         },
                         400: { description: "Validasi gagal", content: { "application/json": { schema: { $ref: "#/components/schemas/ValidationErrorResponse" } } } },
-                        401: { description: "Email atau username sudah terdaftar", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+                        409: { description: "Email atau username sudah terdaftar", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
                         500: { description: "Kesalahan server", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
                     },
                 },
@@ -386,8 +473,8 @@ const options: swaggerJSDoc.Options = {
                                 },
                             },
                         },
-                        400: { description: "Validasi gagal / format avatar salah / tidak ada field", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
-                        401: { description: "Tidak terautentikasi / username sudah terdaftar", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+                        400: { description: "Validasi gagal / format avatar salah / minimal username atau avatar diisi / username sudah terdaftar", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
+                        401: { description: "Tidak terautentikasi", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
                         500: { description: "Kesalahan server", content: { "application/json": { schema: { $ref: "#/components/schemas/ErrorResponse" } } } },
                     },
                 },
@@ -866,13 +953,13 @@ const options: swaggerJSDoc.Options = {
                 },
             },
             // ═══════════════════════════════════════════════════════════════
-            // TABLE OF CONTENTS
+            // DOCUMENT PAGES
             // ═══════════════════════════════════════════════════════════════
             "/documents/{documentId}/pages/{page}": {
                 get: {
                     tags: ["Documents"],
                     summary: "Ambil isi satu halaman dokumen",
-                    description: "PDF/PPTX: halaman merujuk ke halaman fisik atau slide asli. DOCX/TXT: halaman merujuk ke potongan 3000 karakter (halaman 2 = karakter 3001–6000).",
+                    description: "PDF/PPTX: halaman merujuk ke halaman fisik atau slide asli. DOCX/TXT: halaman merujuk ke potongan 3000 karakter (halaman 2 = karakter 3001–6000). Konten teks yang dikembalikan sudah dinormalisasi secara otomatis (soft line-breaks diperbaiki, tanda hubung disatukan, format heading/bullet dirapikan).",
                     security: [{ bearerAuth: [] }],
                     parameters: [
                         { in: "path", name: "documentId", required: true, schema: { type: "string" }, description: "ID dokumen MongoDB" },
@@ -935,28 +1022,7 @@ const options: swaggerJSDoc.Options = {
                                             data: {
                                                 type: "object",
                                                 properties: {
-                                                    toc: {
-                                                        type: "object",
-                                                        properties: {
-                                                            _id: { type: "string" },
-                                                            notebookId: { type: "string" },
-                                                            generatedAt: { type: "string", format: "date-time" },
-                                                            chapters: {
-                                                                type: "array",
-                                                                items: {
-                                                                    type: "object",
-                                                                    properties: {
-                                                                        chapterNumber: { type: "number", example: 1 },
-                                                                        title: { type: "string", example: "Pendahuluan" },
-                                                                        pageStart: { type: "number", example: 1 },
-                                                                        pageEnd: { type: "number", example: 10 },
-                                                                        documentId: { type: "string" },
-                                                                        documentTitle: { type: "string", example: "Basis Data.pdf" },
-                                                                    },
-                                                                },
-                                                            },
-                                                        },
-                                                    },
+                                                    toc: { $ref: "#/components/schemas/TableOfContents" },
                                                 },
                                             },
                                         },
@@ -989,7 +1055,7 @@ const options: swaggerJSDoc.Options = {
                                             data: {
                                                 type: "object",
                                                 properties: {
-                                                    toc: { type: "object" },
+                                                    toc: { $ref: "#/components/schemas/TableOfContents" },
                                                 },
                                             },
                                         },
@@ -1007,8 +1073,8 @@ const options: swaggerJSDoc.Options = {
             "/notebooks/{notebookId}/flashcards": {
                 post: {
                     tags: ["Notebooks"],
-                    summary: "Get / generate set flashcard",
-                    description: "Membuat atau mengambil set flashcard dari dokumen yang dipilih. Cache dikembalikan jika documentIds dan count sama. Set baru di-generate jika berbeda.",
+                    summary: "Generate set flashcard",
+                    description: "Membuat set flashcard dari dokumen yang dipilih (3, 5, 7, atau 10 kartu). Set baru di-generate secara on-demand via Gemini tanpa caching.",
                     security: [{ bearerAuth: [] }],
                     parameters: [{ in: "path", name: "notebookId", required: true, schema: { type: "string" } }],
                     requestBody: {
@@ -1051,17 +1117,7 @@ const options: swaggerJSDoc.Options = {
                                                 properties: {
                                                     cards: {
                                                         type: "array",
-                                                        items: {
-                                                            type: "object",
-                                                            properties: {
-                                                                front: { type: "string", example: "Apa itu normalisasi?" },
-                                                                back: { type: "string", example: "Normalisasi adalah proses pengelompokan atribut..." },
-                                                                documentId: { type: "string" },
-                                                                documentTitle: { type: "string", example: "Basis Data.pdf" },
-                                                                pageStart: { type: "number", example: 12 },
-                                                                pageEnd: { type: "number", example: 12 },
-                                                            },
-                                                        },
+                                                        items: { $ref: "#/components/schemas/Flashcard" },
                                                     },
                                                 },
                                             },
