@@ -8,25 +8,40 @@ import RefreshToken from "../models/refreshToken.model.js"
 import envVariable from "../utils/ENV.js"
 import response from "../utils/response.js"
 
+/** Masa berlaku refresh token (hari). */
 const REFRESH_TOKEN_EXPIRES_DAYS = 7
 
+/** Hash password dengan bcrypt (salt rounds = 10). */
 const hashPassword = async (plain: string) => bcrypt.hash(plain, 10)
+
+/** Bandingkan plain password dengan hash tersimpan. */
 const verifyPassword = async (plain: string, hashed: string) => bcrypt.compare(plain, hashed)
 
+/** Buat JWT access token (expire 1 jam). Payload: `{ userId }`. */
 const signAccessToken = (userId: string) =>
     jwt.sign({ userId }, envVariable.JWT_KEY, { expiresIn: "1h" })
 
+/** Buat JWT refresh token (expire sesuai `REFRESH_TOKEN_EXPIRES_DAYS`). Payload: `{ userId }`. */
 const signRefreshToken = (userId: string) =>
     jwt.sign({ userId }, envVariable.REFRESH_TOKEN_KEY, { expiresIn: `${REFRESH_TOKEN_EXPIRES_DAYS}d` })
 
+/**
+ * Simpan refresh token ke DB beserta tanggal kadaluarsa.
+ * Dipakai saat register/login agar token bisa di-revoke saat logout.
+ */
 const saveRefreshToken = async (userId: string, token: string) => {
     const expiresAt = new Date()
     expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRES_DAYS)
     await RefreshToken.create({ userId, token, expiresAt })
 }
 
-// register
-
+/**
+ * Register user baru.
+ *
+ * Body: `{ email, password, username }`
+ * - Gagal 409 jika email atau username sudah terdaftar.
+ * - Sukses 201 mengembalikan `accessToken` + `refreshToken`.
+ */
 export const registerUser = async (req: Request, res: Response) => {
     try {
         const { email, password, username } = req.body
@@ -50,8 +65,13 @@ export const registerUser = async (req: Request, res: Response) => {
     }
 }
 
-// login
-
+/**
+ * Login user.
+ *
+ * Body: `{ email, password }`
+ * - Gagal jika email tidak ketemu atau password tidak cocok.
+ * - Sukses 200 mengembalikan pasangan token baru (refresh token juga disimpan ke DB).
+ */
 export const loginUser = async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body
@@ -71,7 +91,14 @@ export const loginUser = async (req: Request, res: Response) => {
     }
 }
 
-// refresh token 
+/**
+ * Perbarui access token memakai refresh token yang masih valid.
+ *
+ * Body: `{ refreshToken }`
+ * - Token harus ada di DB dan lolos `jwt.verify`.
+ * - Jika JWT invalid/expired, entry di DB dihapus lalu return error.
+ * - Sukses mengembalikan `accessToken` baru (refresh token tidak diganti).
+ */
 export const refreshAccessToken = async (req: Request, res: Response) => {
     try {
         const { refreshToken } = req.body
@@ -80,13 +107,12 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
             return response.userError(res, "refresh token tidak ada")
         }
 
-        // cek token ada di db gak 
+        // Pastikan token masih tercatat di DB (bisa di-revoke via logout)
         const stored = await RefreshToken.findOne({ token: refreshToken })
         if (!stored) {
             return response.userError(res, "refresh token tidak valid atau sudah expired")
         }
 
-        // verifikasi refresh token
         let payload: { userId: string }
         try {
             payload = jwt.verify(refreshToken, envVariable.REFRESH_TOKEN_KEY) as { userId: string }
@@ -104,8 +130,12 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
     }
 }
 
-// logout 
-
+/**
+ * Logout — mencabut refresh token dari DB.
+ *
+ * Body: `{ refreshToken }`
+ * Access token tidak di-blacklist; client wajib membuangnya sendiri.
+ */
 export const logoutUser = async (req: Request, res: Response) => {
     try {
         const { refreshToken } = req.body
@@ -122,7 +152,12 @@ export const logoutUser = async (req: Request, res: Response) => {
     }
 }
 
-// dapet data user dari access token
+/**
+ * Ambil profil user yang sedang login.
+ *
+ * Membutuhkan `authenticate` middleware (`req.userId`).
+ * Password tidak ikut dikembalikan (`.select("-password")`).
+ */
 export const getUser = async (req: Request, res: Response) => {
     try {
         const userId = req.userId
@@ -142,7 +177,17 @@ export const getUser = async (req: Request, res: Response) => {
     }
 }
 
-// update username atau avatar
+/**
+ * Update username dan/atau avatar user yang sedang login.
+ *
+ * Membutuhkan `authenticate` + `handleAvatarUpload`.
+ * Body (multipart): `username` (opsional) dan/atau file field `avatar` (opsional).
+ * Minimal salah satu harus diisi.
+ *
+ * Avatar disimpan oleh multer diskStorage ke `UPLOADS_DIR/avatars/{userId}/avatar.jpg`
+ * (lihat `upload.middleware.ts`). File lama tertimpa karena nama tetap `avatar.jpg`.
+ * Controller hanya membangun URL publik: `{UPLOAD_BASE_URL}/avatars/{userId}/avatar.jpg`.
+ */
 export const updateUsernameOravatarUser = async(req: Request, res: Response)=>{
     try {
         const userId = req.userId
@@ -168,9 +213,6 @@ export const updateUsernameOravatarUser = async(req: Request, res: Response)=>{
         }
 
         if (avatarFile) {
-            // Avatar disimpan oleh multer diskStorage ke UPLOADS_DIR/avatars/{userId}/avatar.jpg
-            // (lihat upload.middleware.ts). Kita hanya perlu membangun URL publiknya.
-            // File lama otomatis tertimpa karena nama file tetap "avatar.jpg".
             const base = envVariable.UPLOAD_BASE_URL.replace(/\/$/, "")
             updateData.avatarUrl = `${base}/avatars/${userId}/avatar.jpg`
         }
@@ -184,6 +226,14 @@ export const updateUsernameOravatarUser = async(req: Request, res: Response)=>{
     }
 }
 
+/**
+ * Ganti password user yang sedang login.
+ *
+ * Body: `{ oldPassword, newPassword }`
+ * - Verifikasi password lama dulu.
+ * - `newPassword` tidak boleh sama dengan username.
+ * - Password baru di-hash sebelum disimpan.
+ */
 export const updateUserPassword = async(req: Request, res: Response)=>{
     try {
         
