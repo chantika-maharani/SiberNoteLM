@@ -418,7 +418,6 @@ function RegisterPage({ goLogin, onRegistered }) {
   return (
     <main className="auth">
       <h1>Register</h1>
-      <ErrorSummary messages={errorMessages} />
       <form onSubmit={handleSubmit} noValidate>
         <Field id="username" label="Username" error={fieldError("username")} showMessage={false}>
           <TextInput id="username" name="username" autoComplete="username"
