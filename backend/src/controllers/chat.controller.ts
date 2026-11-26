@@ -10,26 +10,43 @@ import { askLLM } from "../services/LLM.js"
 import type { RetrievedChunk, ChatHistoryEntry } from "../services/LLM.js"
 import envVariable from "../utils/ENV.js"
 
+// ─── INISIALISASI MODEL LLM ──────────────────────────────────────────────────
+// Inisialisasi Google Generative AI khusus untuk pembuatan ringkasan (summary)
 const summaryGenAI = new GoogleGenerativeAI(envVariable.GEMINI_MODEL)
 const summaryModel = summaryGenAI.getGenerativeModel({ model: "gemini-3.5-flash" })
 
+// ─── KONFIGURASI HYPERPARAMETER CHAT & RAG ──────────────────────────────────
+// Batas riwayat percakapan sebelumnya yang dikirim ke LLM (multi-turn context)
 const HISTORY_LIMIT = 4
+// Jumlah chunk paling relevan yang diambil dari hasil vector search
 const TOP_K = 5
+// Jumlah kandidat teratas yang dievaluasi dalam ANN (Approximate Nearest Neighbor) index
 const NUM_CANDIDATES = 100
+// Batas maksimal chunk yang diambil untuk membuat ringkasan bab
+const MAX_SUMMARY_CHUNKS = 25
 
+/**
+ * Melakukan pencarian vektor (Vector Search) di MongoDB Atlas untuk menemukan chunk
+ * dokumen yang paling relevan secara semantik dengan pertanyaan pengguna.
+ *
+ * @param queryVector  - Vektor embedding dari pertanyaan/pesan pengguna (array float)
+ * @param documentIds  - Daftar ObjectId dokumen yang valid/selesai diproses di notebook
+ * @returns Array chunk relevan (`RetrievedChunk[]`) lengkap dengan metadata judul dan nomor halaman
+ */
 const vectorSearch = async (
     queryVector: number[],
     documentIds: mongoose.Types.ObjectId[],
 ): Promise<RetrievedChunk[]> => {
+    // Pipeline agregasi MongoDB Atlas Vector Search
     const results = await Chunk.aggregate([
         {
             $vectorSearch: {
-                index: "chunks_vector_index",
-                path: "embedding",
-                queryVector,
-                numCandidates: NUM_CANDIDATES,
-                limit: TOP_K,
-                filter: { documentId: { $in: documentIds } },
+                index: "chunks_vector_index", // Nama search index vektor di MongoDB Atlas
+                path: "embedding",            // Field yang menyimpan array vektor embedding
+                queryVector,                   // Vektor pencarian
+                numCandidates: NUM_CANDIDATES, // Kandidat yang dievaluasi algoritma HNSW
+                limit: TOP_K,                  // Mengambil TOP_K chunk dengan similarity tertinggi
+                filter: { documentId: { $in: documentIds } }, // Filter hanya dokumen di notebook ini
             },
         },
         {
@@ -39,15 +56,17 @@ const vectorSearch = async (
                 content: 1,
                 pageStart: 1,
                 pageEnd: 1,
-                score: { $meta: "vectorSearchScore" },
+                score: { $meta: "vectorSearchScore" }, // Skor relevansi similarity vektor
             },
         },
     ])
 
+    // Ambil judul dokumen secara efisien melalui titleMap agar tidak query berulang per chunk
     const docIds = [...new Set(results.map((r: { documentId: mongoose.Types.ObjectId }) => r.documentId.toString()))]
     const docs = await Document.find({ _id: { $in: docIds } }).select("title")
     const titleMap = new Map(docs.map((d) => [d._id.toString(), d.title]))
 
+    // Format hasil menjadi struktur RetrievedChunk yang siap dikonsumsi oleh service LLM
     return results.map((r: {
         documentId: mongoose.Types.ObjectId
         content: string
@@ -64,21 +83,36 @@ const vectorSearch = async (
     }))
 }
 
-
+/**
+ * Controller: Mengirim pesan pengguna dan menjalankan alur RAG (Retrieval-Augmented Generation).
+ *
+ * Alur kerja:
+ * 1. Validasi autentikasi dan parameter notebookId.
+ * 2. Cek apakah ada minimal 1 dokumen yang berstatus "done".
+ * 3. Simpan pesan user ke collection `messages`.
+ * 4. Ambil 4 riwayat pesan terakhir untuk konteks percakapan berkelanjutan.
+ * 5. Buat embedding dari teks pertanyaan user.
+ * 6. Lakukan vector search ke MongoDB untuk mengambil 5 chunk paling relevan.
+ * 7. Panggil Gemini LLM dengan pertanyaan, chunk sumber, dan riwayat chat.
+ * 8. Simpan jawaban assistant beserta sitasi ke database dan kembalikan ke client.
+ *
+ * Route: POST /chats/:notebookId
+ */
 export const sendMessage = async (req: Request, res: Response) => {
     try {
+        // 1. Verifikasi autentikasi user
         const userId = req.userId
         if (!userId) {
             return response.userError(res, "tidak terautentikasi", 401)
         }
 
         const { notebookId } = req.params
-        
         if (!notebookId || typeof notebookId !== "string") {
             return response.userError(res, "notebookId tidak valid")
         }
         const { message } = req.body as { message: string }
 
+        // 2. Pastikan ada dokumen di notebook ini yang sudah selesai di-chunk & di-embed
         const readyDocuments = await Document.find({
             notebookId,
             parseStatus: "done",
@@ -94,6 +128,7 @@ export const sendMessage = async (req: Request, res: Response) => {
 
         const documentIds = readyDocuments.map((d) => d._id as mongoose.Types.ObjectId)
 
+        // 3. Simpan pesan user ke database
         const userMessage = await Message.create({
             notebookId,
             role: "user",
@@ -102,6 +137,7 @@ export const sendMessage = async (req: Request, res: Response) => {
             sourceType: null,
         })
 
+        // 4. Ambil riwayat percakapan sebelumnya (maksimal 4 pesan) untuk konteks percakapan multi-turn
         const recentMessages = await Message.find({
             notebookId,
             _id: { $ne: userMessage._id },
@@ -110,18 +146,25 @@ export const sendMessage = async (req: Request, res: Response) => {
             .limit(HISTORY_LIMIT)
             .select("role content")
             .lean()
+
+        // Balik urutan agar kronologis (paling lama -> paling baru)
         const history: ChatHistoryEntry[] = recentMessages
             .reverse()
             .map((m) => ({ role: m.role, content: m.content }))
 
+        // 5. Generate query embedding vektor dari pesan user
         const queryVector = await generateQueryEmbedding(message)
-        console.log(`[chat] selesai embedding chat`);
+        console.log(`[chat] selesai embedding chat`)
 
+        // 6. Pencarian vektor semantik untuk mendapatkan chunk materi yang relevan
         const chunks = await vectorSearch(queryVector, documentIds)
-        console.log(`[chat] selesai vector search`);
-        console.log(`[chat] mulai request ke llm`);
+        console.log(`[chat] selesai vector search`)
+
+        // 7. Kirim pertanyaan, chunk referensi, dan riwayat percakapan ke model LLM
+        console.log(`[chat] mulai request ke llm`)
         const llmResult = await askLLM(message, chunks, history)
 
+        // 8. Simpan jawaban assistant beserta sitasi dokumen ke database
         const assistantMessage = await Message.create({
             notebookId,
             role: "assistant",
@@ -129,7 +172,8 @@ export const sendMessage = async (req: Request, res: Response) => {
             citations: llmResult.citations,
             sourceType: llmResult.sourceType,
         })
-        console.log(`[chat] selesai`);
+        console.log(`[chat] selesai`)
+
         return response.requestSuccessWithData(
             res,
             "berhasil kirim pesan",
@@ -142,18 +186,27 @@ export const sendMessage = async (req: Request, res: Response) => {
     }
 }
 
+/**
+ * Controller: Mengambil seluruh riwayat percakapan di dalam suatu notebook.
+ *
+ * Pesan diurutkan secara ascending berdasarkan waktu pembuatan (`createdAt: 1`)
+ * agar percakapan dapat dirender dari atas ke bawah pada antarmuka chat.
+ *
+ * Route: GET /chats/:notebookId
+ */
 export const getMessages = async (req: Request, res: Response) => {
     try {
         const { notebookId } = req.params
-        
+
         if (!notebookId || typeof notebookId !== "string") {
             return response.userError(res, "notebookId tidak valid")
         }
 
+        // Ambil semua pesan dalam notebook secara kronologis
         const messages = await Message.find({ notebookId })
             .sort({ createdAt: 1 })
             .lean()
-        console.log(`[chat] dapet semua chat`);
+        console.log(`[chat] dapet semua chat`)
 
         return response.requestSuccessWithData(
             res,
@@ -167,8 +220,12 @@ export const getMessages = async (req: Request, res: Response) => {
     }
 }
 
-const MAX_SUMMARY_CHUNKS = 25
-
+/**
+ * Helper: Menyusun blok teks sumber materi berformat `SOURCE [n]` untuk prompt ringkasan.
+ *
+ * Format terstruktur ini memudahkan Gemini untuk mereferensikan sitasi `[1]`, `[2]`, dst.
+ * secara akurat sesuai chunk halaman asal.
+ */
 const buildSummarySourceBlock = (
     chunks: { pageStart: number; pageEnd: number; content: string }[],
     documentTitle: string,
@@ -182,6 +239,14 @@ const buildSummarySourceBlock = (
         ].join("\n"))
         .join("\n\n")
 
+/**
+ * Helper: Membangun prompt lengkap untuk meminta LLM membuat ringkasan bab.
+ *
+ * Aturan prompt:
+ * - 5 sampai 8 poin utama ide penting dari bab.
+ * - Wajib menyertakan sitasi interaktif `[n]` di setiap poin berdasarkan nomor `SOURCE`.
+ * - Grounded generation: tidak boleh menyitir atau berhalusinasi di luar teks sumber yang diberikan.
+ */
 const buildSummaryPrompt = (
     chapterTitle: string,
     pageStart: number,
@@ -204,8 +269,23 @@ const buildSummaryPrompt = (
     ].join("\n")
 }
 
+/**
+ * Controller: Membuat ringkasan bab dari dokumen yang dipilih berdasarkan rentang halaman.
+ *
+ * Alur kerja:
+ * 1. Validasi input: documentId, chapterTitle, pageStart, pageEnd.
+ * 2. Cek keberadaan dokumen di notebook bersangkutan.
+ * 3. Ambil chunk teks dokumen yang berada dalam rentang halaman bab (maksimal 25 chunk).
+ * 4. Simpan pesan permintaan ringkasan dari user ke riwayat chat.
+ * 5. Panggil Gemini (gemini-3.5-flash) secara stateless (tanpa riwayat obrolan).
+ * 6. Parse nomor sitasi `[n]` yang digunakan LLM dan re-number agar berurutan mulai dari [1].
+ * 7. Simpan respons ringkasan assistant beserta array sitasi lengkap ke database.
+ *
+ * Route: POST /chats/:notebookId/summary
+ */
 export const createChapterSummary = async (req: Request, res: Response) => {
     try {
+        // 1. Verifikasi autentikasi user
         const userId = req.userId
         if (!userId) {
             return response.userError(res, "tidak terautentikasi", 401)
@@ -223,7 +303,7 @@ export const createChapterSummary = async (req: Request, res: Response) => {
             pageEnd: number
         }
 
-        // verify dokumen milik notebook ini
+        // 2. Verifikasi dokumen terdaftar di notebook dan status pemrosesannya selesai
         const doc = await Document.findOne({
             _id: documentId,
             notebookId,
@@ -234,7 +314,7 @@ export const createChapterSummary = async (req: Request, res: Response) => {
             return response.notFoundError(res, "dokumen tidak ditemukan atau belum selesai diproses")
         }
 
-        // ambil chunks dalam rentang halaman bab
+        // 3. Ambil chunks dokumen yang berada di dalam rentang halaman bab
         const rawChunks = await Chunk.find({
             documentId: new mongoose.Types.ObjectId(documentId),
             pageStart: { $gte: pageStart },
@@ -252,8 +332,9 @@ export const createChapterSummary = async (req: Request, res: Response) => {
                 422,
             )
         }
-        console.log(`[summary] simpen chat user`);
-        // simpan pesan user
+
+        // 4. Simpan pesan permintaan ringkasan sebagai pesan dari user
+        console.log(`[summary] simpen chat user`)
         const userContent = `Buatkan ringkasan Bab ${chapterTitle} (hlm. ${pageStart}–${pageEnd}) dari ${doc.title}`
         const userMessage = await Message.create({
             notebookId,
@@ -263,7 +344,7 @@ export const createChapterSummary = async (req: Request, res: Response) => {
             sourceType: null,
         })
 
-        // bangun prompt ringkasan khusus
+        // 5. Bangun prompt ringkasan dengan blok sumber terstruktur
         const summaryPrompt = buildSummaryPrompt(
             chapterTitle,
             pageStart,
@@ -271,12 +352,15 @@ export const createChapterSummary = async (req: Request, res: Response) => {
             doc.title,
             rawChunks,
         )
-        console.log(`[summary] kirim llm`);
-        // panggil Gemini tanpa history — ringkasan tidak butuh konteks percakapan
+
+        // 6. Generate ringkasan dengan Gemini (stateless tanpa history percakapan)
+        console.log(`[summary] kirim llm`)
         const result = await summaryModel.generateContent(summaryPrompt)
         const responseText = result.response.text()
-        console.log(`[summary] selesai generate summary`);
-        // parse + re-number citations
+        console.log(`[summary] selesai generate summary`)
+
+        // 7. Ekstraksi dan penataan ulang nomor sitasi (Re-numbering citations)
+        // Contoh: Jika model mengutip [3] dan [7], akan dinormalkan menjadi [1] dan [2]
         const citationRegex = /\[(\d+)\]/g
         const foundIndices = new Set<number>()
         let m: RegExpExecArray | null
@@ -287,6 +371,7 @@ export const createChapterSummary = async (req: Request, res: Response) => {
             if (idx >= 1 && idx <= rawChunks.length) foundIndices.add(idx)
         }
 
+        // Petakan indeks lama ke metadata sitasi baru yang berurutan
         const rawCitations = Array.from(foundIndices)
             .sort((a, b) => a - b)
             .map((oldIdx, i) => {
@@ -304,6 +389,7 @@ export const createChapterSummary = async (req: Request, res: Response) => {
                 }
             })
 
+        // Ganti nomor sitasi pada teks jawaban menggunakan placeholder sementara untuk menghindari tabrakan angka
         let finalContent = responseText
         for (const { oldIdx, citation } of rawCitations) {
             finalContent = finalContent.replaceAll(`[${oldIdx}]`, `[__${citation.citationIndex}__]`)
@@ -312,6 +398,7 @@ export const createChapterSummary = async (req: Request, res: Response) => {
 
         const citations = rawCitations.map((r) => r.citation)
 
+        // 8. Simpan pesan jawaban assistant beserta sitasi yang sudah ditata ke database
         const assistantMessage = await Message.create({
             notebookId,
             role: "assistant",
@@ -319,7 +406,8 @@ export const createChapterSummary = async (req: Request, res: Response) => {
             citations,
             sourceType: "document",
         })
-        console.log(`[summary] selesai buat summaey`);
+        console.log(`[summary] selesai buat summaey`)
+
         return response.requestSuccessWithData(
             res,
             "berhasil membuat ringkasan bab",
