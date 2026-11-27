@@ -9,6 +9,9 @@ import Note from "../models/note.model.js";
 import Message from "../models/message.model.js";
 import TableOfContents from "../models/toc.model.js";
 import envVariable from "../utils/ENV.js";
+import { createModuleLogger } from "../config/logger.js";
+
+const notebookLogger = createModuleLogger("notebook");
 
 export const createNotebook = async (req: Request, res: Response) => {
   try {
@@ -19,7 +22,14 @@ export const createNotebook = async (req: Request, res: Response) => {
     }
 
     const notebook = await Notebook.create({ description, title, userId });
-    console.log(`[notebook] notebook dibuat`);
+    notebookLogger.info(
+      {
+        event: "notebook.created",
+        notebookId: notebook._id.toString(),
+        userId,
+      },
+      "Notebook created",
+    );
     return response.requestSuccessWithData(
       res,
       "berhasil buat notebook",
@@ -27,7 +37,10 @@ export const createNotebook = async (req: Request, res: Response) => {
       201,
     );
   } catch (error) {
-    console.log(error);
+    notebookLogger.error(
+      { event: "notebook.create.failed", userId: req.userId, err: error },
+      "Failed to create notebook",
+    );
     return response.serverError(res, "gagal buat notebook");
   }
 };
@@ -42,9 +55,9 @@ export const getAllNotebookUser = async (req: Request, res: Response) => {
     };
 
     if (sortBy === "title") {
-      sort.title = 1; 
+      sort.title = 1;
     } else {
-      sort.createdAt = -1; 
+      sort.createdAt = -1;
     }
 
     if (!userId) {
@@ -83,7 +96,15 @@ export const getAllNotebookUser = async (req: Request, res: Response) => {
       .limit(limit);
 
     const totalPages = Math.ceil(count / limit);
-    console.log(`[notebook] dapet semua notebook`);
+    notebookLogger.debug(
+      {
+        event: "notebook.listed",
+        userId,
+        page,
+        totalNotebook: count,
+      },
+      "Listed user notebooks",
+    );
     return response.requestSuccessWithData(
       res,
       "berhasil mendapatkan semua notebook user",
@@ -101,7 +122,10 @@ export const getAllNotebookUser = async (req: Request, res: Response) => {
       200,
     );
   } catch (error) {
-    console.error(error);
+    notebookLogger.error(
+      { event: "notebook.list.failed", userId: req.userId, err: error },
+      "Failed to list notebooks",
+    );
 
     return response.serverError(res, "gagal mendapatkan semua notebook user");
   }
@@ -147,10 +171,21 @@ export const deleteNotebook = async (req: Request, res: Response) => {
     await Message.deleteMany({ notebookId: notebook._id });
     await TableOfContents.deleteOne({ notebookId: notebook._id });
     await notebook.deleteOne();
-    console.log(`[notebook] hapus notebook`);
+    notebookLogger.info(
+      {
+        event: "notebook.deleted",
+        notebookId: notebook._id.toString(),
+        userId: req.userId,
+        deletedDocumentsCount: documentIds.length,
+      },
+      "Notebook deleted",
+    );
     return response.requestSuccess(res, "berhasil hapus notebook");
   } catch (error) {
-    console.error(error);
+    notebookLogger.error(
+      { event: "notebook.delete.failed", notebookId: req.params.notebookId, userId: req.userId, err: error },
+      "Failed to delete notebook",
+    );
 
     return response.serverError(res, "gagal hapus notebook");
   }
@@ -168,8 +203,17 @@ export const getNotebookById = async (req: Request, res: Response) => {
     }
     const notes = await Note.find({ notebookId });
     const documents = await Document.find({ notebookId });
-    console.log(`[notebok] dapet notebook`);
-  
+    notebookLogger.debug(
+      {
+        event: "notebook.fetched",
+        notebookId,
+        userId: req.userId,
+        notesCount: notes.length,
+        documentsCount: documents.length,
+      },
+      "Fetched notebook detail",
+    );
+
     response.requestSuccessWithData(
       res,
       "berhasil dapet notebook",
@@ -177,6 +221,10 @@ export const getNotebookById = async (req: Request, res: Response) => {
       200,
     );
   } catch (error) {
+    notebookLogger.error(
+      { event: "notebook.fetch.failed", notebookId: req.params.notebookId, userId: req.userId, err: error },
+      "Failed to fetch notebook detail",
+    );
     return response.serverError(res, "gagal dapet notebook by id");
   }
 };
@@ -196,7 +244,15 @@ export const pinNotebook = async (req: Request, res: Response) => {
     if (!notebook) {
       return response.notFoundError(res, "notebook tidak ditemukan");
     }
-    console.log(`[notebook] pin notebook`);
+    notebookLogger.info(
+      {
+        event: "notebook.updated",
+        notebookId,
+        userId: req.userId,
+        isPinned: Boolean(pinned),
+      },
+      "Notebook pin status updated",
+    );
     response.requestSuccessWithData(
       res,
       "berhasil pin notebook",
@@ -204,6 +260,10 @@ export const pinNotebook = async (req: Request, res: Response) => {
       200,
     );
   } catch (error) {
+    notebookLogger.error(
+      { event: "notebook.pin.failed", notebookId: req.params.notebookId, userId: req.userId, err: error },
+      "Failed to pin notebook",
+    );
     return response.serverError(res, "gagal pin notebook");
   }
 };
@@ -231,7 +291,14 @@ export const updateNotebook = async (req: Request, res: Response) => {
     if (!notebook) {
       return response.notFoundError(res, "notebook tidak ditemukan");
     }
-    console.log(`[notebook] update notebook`);
+    notebookLogger.info(
+      {
+        event: "notebook.updated",
+        notebookId,
+        userId: req.userId,
+      },
+      "Notebook updated",
+    );
     response.requestSuccessWithData(
       res,
       "berhasil update notebook",
@@ -239,6 +306,10 @@ export const updateNotebook = async (req: Request, res: Response) => {
       200,
     );
   } catch (error) {
+    notebookLogger.error(
+      { event: "notebook.update.failed", notebookId: req.params.notebookId, userId: req.userId, err: error },
+      "Failed to update notebook",
+    );
     return response.serverError(res, "gagal update notebook");
   }
 };

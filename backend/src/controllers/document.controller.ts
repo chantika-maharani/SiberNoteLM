@@ -6,12 +6,15 @@ import Document from "../models/document.model.js"
 import Notebook from "../models/notebook.model.js"
 import Chunk from "../models/chunk.model.js"
 import TableOfContents from "../models/toc.model.js"
-import { chunkPDF, chunkPPTX, chunkTXT, chunkDOCX, NoTextError, cleanPdfText } from "../services/chunking.js"
+import { chunkPDF, chunkPPTX, chunkTXT, chunkDOCX, NoTextError, ParseError, cleanPdfText } from "../services/chunking.js"
 
 const MIN_CONTENT_CHARS = 50
 import response from "../utils/response.js"
 import envVariable from "../utils/ENV.js"
 import Message from "../models/message.model.js"
+import { createModuleLogger } from "../config/logger.js"
+
+const docLogger = createModuleLogger("document")
 
 type FileType = "pdf" | "pptx" | "txt" | "docx"
 
@@ -104,6 +107,19 @@ export const uploadDocument = async (req: Request, res: Response) => {
         if (!fileType) {
             return response.userError(res, "Format tidak didukung, hanya PDF, PPTX, DOCX, dan TXT")
         }
+
+        docLogger.info(
+            {
+                event: "document.upload.started",
+                notebookId,
+                userId,
+                fileType,
+                fileSize: size,
+                status: "started",
+            },
+            "Document upload started",
+        )
+
         const originalBaseName = originalname
         .replace(/\.[^.]+$/, "")
         .replace(/\s+/g, "_")
@@ -131,8 +147,32 @@ export const uploadDocument = async (req: Request, res: Response) => {
             parseStatus: "pending",
         })
 
+        const requestId = req.requestId
+        const documentId = doc._id.toString()
+
+        docLogger.info(
+            {
+                event: "document.upload.completed",
+                documentId,
+                notebookId,
+                userId,
+                fileType,
+                fileSize: size,
+                status: "pending",
+            },
+            "Document uploaded and queued for processing",
+        )
+
         // proses chunking setelah response dikirim ke FE supaya tidak block user
         setImmediate(async () => {
+            const bgLogger = createModuleLogger("document", {
+                ...(requestId ? { requestId } : {}),
+                documentId,
+                notebookId,
+                fileType,
+                fileSize: size,
+            })
+            const startedAt = Date.now()
             try {
                 const { chunks, totalPages } = fileType === "pdf"
                     ? await chunkPDF(buffer, doc._id)
@@ -142,6 +182,17 @@ export const uploadDocument = async (req: Request, res: Response) => {
                             ? await chunkDOCX(buffer, doc._id)
                             : await chunkTXT(buffer, doc._id)
 
+                bgLogger.info(
+                    {
+                        event: "document.parse.completed",
+                        totalPages,
+                        totalChunks: chunks.length,
+                        durationMs: Date.now() - startedAt,
+                        status: "parsed",
+                    },
+                    "Document parsing completed",
+                )
+
                 // tolak dokumen yang kontennya terlalu sedikit — hapus dari DB dan disk
                 const totalChars = chunks.reduce((sum, c) => sum + c.content.length, 0)
                 if (totalChars < MIN_CONTENT_CHARS) {
@@ -150,7 +201,17 @@ export const uploadDocument = async (req: Request, res: Response) => {
                     const filePath = path.join(envVariable.UPLOADS_DIR, relativePath)
                     if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
                     await doc.deleteOne()
-                    console.warn(`[chunking] tolak ${doc.title} — konten terlalu sedikit (${totalChars} karakter)`)
+                    bgLogger.warn(
+                        {
+                            event: "document.chunking.failed",
+                            reason: "insufficient_content",
+                            totalPages,
+                            totalChunks: chunks.length,
+                            durationMs: Date.now() - startedAt,
+                            status: "rejected",
+                        },
+                        "Document rejected due to insufficient content",
+                    )
                     return
                 }
 
@@ -167,13 +228,32 @@ export const uploadDocument = async (req: Request, res: Response) => {
                 // hapus ToC lama supaya GET /toc akan generate ulang dengan dokumen terbaru
                 await TableOfContents.deleteOne({ notebookId: doc.notebookId })
 
-                console.log(`[chunking] berhasil ${doc.title} — ${totalPages} halaman, ${chunks.length} chunks`)
+                bgLogger.info(
+                    {
+                        event: "document.chunking.completed",
+                        totalPages,
+                        totalChunks: chunks.length,
+                        durationMs: Date.now() - startedAt,
+                        status: "done",
+                    },
+                    "Document chunking completed",
+                )
             } catch (err) {
                 const errorMessage = err instanceof Error
                     ? err.message
                     : "Gagal memproses dokumen, silakan coba lagi."
+                const durationMs = Date.now() - startedAt
+                const isParseFailure = err instanceof NoTextError || err instanceof ParseError
 
-                console.error(`[chunking] gagal proses ${doc.title}:`, err)
+                bgLogger.error(
+                    {
+                        event: isParseFailure ? "document.parse.failed" : "document.chunking.failed",
+                        durationMs,
+                        status: "error",
+                        err,
+                    },
+                    "Document processing failed",
+                )
 
                 // hapus dari DB dan disk supaya tidak muncul di list
                 try {
@@ -184,7 +264,14 @@ export const uploadDocument = async (req: Request, res: Response) => {
                     await doc.deleteOne()
                 } catch (cleanupErr) {
                     // cleanup gagal — tandai error supaya tidak stuck di pending
-                    console.error(`[chunking] cleanup gagal ${doc.title}:`, cleanupErr)
+                    bgLogger.error(
+                        {
+                            event: "document.cleanup.failed",
+                            status: "error",
+                            err: cleanupErr,
+                        },
+                        "Failed to clean up failed document",
+                    )
                     await Document.findByIdAndUpdate(doc._id, {
                         parseStatus: "error",
                         parseError: errorMessage,
@@ -195,7 +282,16 @@ export const uploadDocument = async (req: Request, res: Response) => {
 
         return response.requestSuccessWithData(res, "berhasil upload dokumen", { document: doc }, 201)
     } catch (error) {
-        console.error(error)
+        docLogger.error(
+            {
+                event: "document.upload.failed",
+                notebookId: req.params.notebookId,
+                userId: req.userId,
+                status: "failed",
+                err: error,
+            },
+            "Document upload failed",
+        )
         return response.serverError(res, "gagal upload dokumen")
     }
 }
@@ -227,7 +323,10 @@ export const getDocumentsByNotebook = async (req: Request, res: Response) => {
 
         return response.requestSuccessWithData(res, "berhasil get dokumen", { documents }, 200)
     } catch (error) {
-        console.error(error)
+        docLogger.error(
+            { event: "document.list.failed", notebookId: req.params.notebookId, userId: req.userId, err: error },
+            "Failed to list documents",
+        )
         return response.serverError(res, "gagal get dokumen")
     }
 }
@@ -261,9 +360,25 @@ export const deleteDocument = async (req: Request, res: Response) => {
         await Chunk.deleteMany({ documentId: doc._id })
         await doc.deleteOne()
 
+        docLogger.info(
+            {
+                event: "document.deleted",
+                documentId: doc._id.toString(),
+                notebookId: doc.notebookId.toString(),
+                fileType: doc.fileType,
+                fileSize: doc.fileSize,
+                userId: req.userId,
+                status: "deleted",
+            },
+            "Document deleted",
+        )
+
         return response.requestSuccess(res, "berhasil hapus dokumen")
     } catch (error) {
-        console.error(error)
+        docLogger.error(
+            { event: "document.delete.failed", documentId: req.params.documentId, userId: req.userId, err: error },
+            "Failed to delete document",
+        )
         return response.serverError(res, "gagal hapus dokumen")
     }
 }
@@ -301,6 +416,16 @@ export const updateDocument = async (req: Request, res: Response) => {
             },
         )
 
+        docLogger.info(
+            {
+                event: "document.updated",
+                documentId: document._id.toString(),
+                notebookId: document.notebookId.toString(),
+                userId: req.userId,
+            },
+            "Document updated",
+        )
+
         return response.requestSuccessWithData(
             res,
             "berhasil update document",
@@ -308,7 +433,10 @@ export const updateDocument = async (req: Request, res: Response) => {
             200,
         )
     } catch (error) {
-        console.error("Update document error:", error)
+        docLogger.error(
+            { event: "document.update.failed", documentId: req.params.documentId, userId: req.userId, err: error },
+            "Failed to update document",
+        )
         return response.serverError(res, "gagal update dokumen")
     }
 }
@@ -370,7 +498,10 @@ export const getDocumentPage = async (req: Request, res: Response) => {
             content,
         }, 200)
     } catch (error) {
-        console.error(error)
+        docLogger.error(
+            { event: "document.page.fetch_failed", documentId: req.params.documentId, err: error },
+            "Failed to get document page",
+        )
         return response.serverError(res, "gagal mendapatkan isi halaman")
     }
 }
@@ -402,7 +533,10 @@ export const getDocumentStatus = async (req: Request, res: Response) => {
             totalPages:  doc.totalPages,
         }, 200)
     } catch (error) {
-        console.error(error)
+        docLogger.error(
+            { event: "document.status.fetch_failed", documentId: req.params.documentId, err: error },
+            "Failed to get document status",
+        )
         return response.serverError(res, "gagal get status dokumen")
     }
 }

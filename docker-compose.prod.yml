@@ -16,6 +16,10 @@ services:
     restart: unless-stopped
     env_file:
       - ./backend/.env
+    environment:
+      NODE_ENV: production
+      LOG_DIR: /app/logs
+      LOG_TO_FILE: "true"
     ports:
       - "8080:8080"
     networks:
@@ -24,6 +28,8 @@ services:
       # Persistent storage untuk file uploads
       # Bind ke path absolut di VPS (contoh: /var/www/sibernote/uploads)
       - sibernote_uploads:/app/uploads
+      # Persistent named volume untuk application logs (tahan restart & recreate)
+      - sibernote_logs:/app/logs
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 30s
@@ -80,3 +86,5 @@ volumes:
       type: none
       o: bind
       device: ${UPLOADS_DIR:-/var/www/sibernote/uploads}
+  sibernote_logs:
+    driver: local

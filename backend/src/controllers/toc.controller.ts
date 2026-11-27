@@ -5,6 +5,9 @@ import Document from "../models/document.model.js"
 import TableOfContents from "../models/toc.model.js"
 import { generateToc } from "../services/toc.js"
 import type { TocDocument } from "../services/toc.js"
+import { createModuleLogger } from "../config/logger.js"
+
+const tocLogger = createModuleLogger("toc")
 
 const getReadyDocuments = async (notebookId: string): Promise<TocDocument[]> => {
     const docs = await Document.find({ notebookId, parseStatus: "done" })
@@ -24,7 +27,7 @@ const doGenerate = async (notebookId: string): Promise<InstanceType<typeof Table
     if (docs.length === 0) {
         throw new Error("422")
     }
-    console.log(`[toc] mulai`);
+    const startedAt = Date.now()
     const chapters = await generateToc(docs)
     const notebookObjectId = new mongoose.Types.ObjectId(notebookId)
 
@@ -39,6 +42,17 @@ const doGenerate = async (notebookId: string): Promise<InstanceType<typeof Table
     )
 
     if (!toc) throw new Error("Gagal menyimpan ToC")
+
+    tocLogger.info(
+        {
+            event: "toc.generation.completed",
+            notebookId,
+            documentCount: docs.length,
+            chaptersCount: chapters.length,
+            durationMs: Date.now() - startedAt,
+        },
+        "Table of contents generated",
+    )
 
     return toc
 }
@@ -65,7 +79,6 @@ export const getToc = async (req: Request, res: Response) => {
         }
 
         const toc = await doGenerate(notebookId)
-        console.log(`[toc] selesai`);
         return response.requestSuccessWithData(
             res,
             "berhasil mendapatkan daftar bab",
@@ -80,7 +93,10 @@ export const getToc = async (req: Request, res: Response) => {
                 422,
             )
         }
-        console.error("[toc] getToc error:", error)
+        tocLogger.error(
+            { event: "toc.generation.failed", notebookId: req.params.notebookId, err: error },
+            "Failed to generate table of contents",
+        )
         return response.serverError(res, "Gagal menyusun daftar bab, silakan coba lagi.")
     }
 }
@@ -113,7 +129,10 @@ export const regenerateToc = async (req: Request, res: Response) => {
                 422,
             )
         }
-        console.error("[toc] regenerateToc error:", error)
+        tocLogger.error(
+            { event: "toc.generation.failed", notebookId: req.params.notebookId, err: error },
+            "Failed to regenerate table of contents",
+        )
         return response.serverError(res, "Gagal menyusun daftar bab, silakan coba lagi.")
     }
 }

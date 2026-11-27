@@ -4,6 +4,9 @@ import Notebook from "../models/notebook.model.js";
 import Document from "../models/document.model.js";
 import Note from "../models/note.model.js";
 import Message from "../models/message.model.js";
+import { createModuleLogger } from "../config/logger.js";
+
+const authorizeLogger = createModuleLogger("authorize");
 
 export const isUserAuthorize = async (req: Request,res: Response,next: NextFunction,) => {
   const userId = req.userId;
@@ -87,7 +90,10 @@ export const isUserAuthorizeToAccessNote = async (
 
     next();
   } catch (error) {
-    console.error(error);
+    authorizeLogger.error(
+      { event: "authorize.note.check.failed", notebookId: req.params.notebookId, noteId: req.params.noteId, err: error },
+      "Failed to check note access",
+    );
     return response.serverError(res, "Gagal memeriksa akses note");
   }
 };
@@ -132,7 +138,10 @@ export const isUserCanAccessCitation = async (
 
     next()
   } catch (error) {
-    console.error(error)
+    authorizeLogger.error(
+      { event: "authorize.citation.check.failed", messageId: req.params.messageId, err: error },
+      "Failed to check citation access",
+    )
     return response.serverError(res, "Gagal memeriksa akses citation")
   }
 }

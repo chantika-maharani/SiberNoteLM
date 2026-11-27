@@ -1,6 +1,11 @@
 import { GoogleGenerativeAI } from "@google/generative-ai"
 import type { Types } from "mongoose"
 import envVariable from "../utils/ENV.js"
+import { createModuleLogger, extractSafeError } from "../config/logger.js"
+
+const llmLogger = createModuleLogger("llm")
+const LLM_PROVIDER = "google-gemini"
+const LLM_MODEL_NAME = "gemini-3.5-flash"
 
 export interface RetrievedChunk {
     documentId: Types.ObjectId
@@ -32,7 +37,7 @@ export interface LLMResult {
 }
 
 const genAI = new GoogleGenerativeAI(envVariable.GEMINI_MODEL)
-const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" })
+const model = genAI.getGenerativeModel({ model: LLM_MODEL_NAME })
 
 const buildSourceBlock = (chunks: RetrievedChunk[]): string => {
     if (chunks.length === 0) return ""
@@ -173,22 +178,67 @@ export const askLLM = async (
     chunks: RetrievedChunk[],
     history: ChatHistoryEntry[],
 ): Promise<LLMResult> => {
+    const startedAt = Date.now()
     const prompt = buildPrompt(question, chunks)
-    console.log(prompt)
 
-    const chat = model.startChat({
-        history: toGeminiHistory(history),
-    })
+    llmLogger.info(
+        {
+            event: "ai.generation.started",
+            provider: LLM_PROVIDER,
+            model: LLM_MODEL_NAME,
+            operation: "rag_chat",
+            chunksCount: chunks.length,
+            historyCount: history.length,
+        },
+        "LLM generation started",
+    )
 
-    const result = await chat.sendMessage(prompt)
-    const responseText = result.response.text()
+    try {
+        const chat = model.startChat({
+            history: toGeminiHistory(history),
+        })
 
-    const { citations, content: reNumberedContent } = parseCitations(responseText, chunks)
-    const sourceType = determineSourceType(reNumberedContent, citations)
+        const result = await chat.sendMessage(prompt)
+        const responseText = result.response.text()
+        const usageMetadata = result.response.usageMetadata
 
-    return {
-        content: reNumberedContent,
-        citations,
-        sourceType,
+        const { citations, content: reNumberedContent } = parseCitations(responseText, chunks)
+        const sourceType = determineSourceType(reNumberedContent, citations)
+
+        llmLogger.info(
+            {
+                event: "ai.generation.completed",
+                provider: LLM_PROVIDER,
+                model: LLM_MODEL_NAME,
+                operation: "rag_chat",
+                durationMs: Date.now() - startedAt,
+                citationsCount: citations.length,
+                sourceType,
+                ...(usageMetadata ? { tokenUsage: usageMetadata } : {}),
+            },
+            "LLM generation completed",
+        )
+
+        return {
+            content: reNumberedContent,
+            citations,
+            sourceType,
+        }
+    } catch (err) {
+        const safeErr = extractSafeError(err)
+        llmLogger.error(
+            {
+                event: "ai.generation.failed",
+                provider: LLM_PROVIDER,
+                model: LLM_MODEL_NAME,
+                operation: "rag_chat",
+                durationMs: Date.now() - startedAt,
+                errorCategory: safeErr.errorCategory,
+                ...(safeErr.providerStatus !== undefined ? { providerStatus: safeErr.providerStatus } : {}),
+                err,
+            },
+            "LLM generation failed",
+        )
+        throw err
     }
 }

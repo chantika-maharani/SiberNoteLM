@@ -9,6 +9,11 @@ import { generateQueryEmbedding } from "../services/embedding.js"
 import { askLLM } from "../services/LLM.js"
 import type { RetrievedChunk, ChatHistoryEntry } from "../services/LLM.js"
 import envVariable from "../utils/ENV.js"
+import { createModuleLogger, extractSafeError } from "../config/logger.js"
+
+const ragLogger = createModuleLogger("rag")
+const summaryLogger = createModuleLogger("summary")
+const SUMMARY_MODEL_NAME = "gemini-3.5-flash"
 
 // ─── INISIALISASI MODEL LLM ──────────────────────────────────────────────────
 // Inisialisasi Google Generative AI khusus untuk pembuatan ringkasan (summary)
@@ -154,14 +159,67 @@ export const sendMessage = async (req: Request, res: Response) => {
 
         // 5. Generate query embedding vektor dari pesan user
         const queryVector = await generateQueryEmbedding(message)
-        console.log(`[chat] selesai embedding chat`)
 
         // 6. Pencarian vektor semantik untuk mendapatkan chunk materi yang relevan
-        const chunks = await vectorSearch(queryVector, documentIds)
-        console.log(`[chat] selesai vector search`)
+        const retrievalStartedAt = Date.now()
+        ragLogger.info(
+            {
+                event: "rag.retrieval.started",
+                notebookId,
+                candidateDocumentsCount: documentIds.length,
+                numCandidates: NUM_CANDIDATES,
+                topK: TOP_K,
+            },
+            "RAG retrieval started",
+        )
+
+        let chunks: RetrievedChunk[]
+        try {
+            chunks = await vectorSearch(queryVector, documentIds)
+        } catch (retrievalErr) {
+            ragLogger.error(
+                {
+                    event: "rag.retrieval.failed",
+                    notebookId,
+                    durationMs: Date.now() - retrievalStartedAt,
+                    err: retrievalErr,
+                },
+                "RAG retrieval failed",
+            )
+            throw retrievalErr
+        }
+
+        const sourceDocumentsCount = new Set(chunks.map((c) => c.documentId.toString())).size
+        const retrievalDurationMs = Date.now() - retrievalStartedAt
+        ragLogger.info(
+            {
+                event: "rag.retrieval.completed",
+                notebookId,
+                numCandidates: NUM_CANDIDATES,
+                retrievedChunksCount: chunks.length,
+                sourceDocumentsCount,
+                durationMs: retrievalDurationMs,
+            },
+            "RAG retrieval completed",
+        )
+
+        const contextSizeChars =
+            chunks.reduce((sum, c) => sum + c.content.length, 0) +
+            history.reduce((sum, h) => sum + h.content.length, 0)
+
+        ragLogger.info(
+            {
+                event: "rag.context.completed",
+                notebookId,
+                retrievedChunksCount: chunks.length,
+                sourceDocumentsCount,
+                historyCount: history.length,
+                contextSizeChars,
+            },
+            "RAG context assembled",
+        )
 
         // 7. Kirim pertanyaan, chunk referensi, dan riwayat percakapan ke model LLM
-        console.log(`[chat] mulai request ke llm`)
         const llmResult = await askLLM(message, chunks, history)
 
         // 8. Simpan jawaban assistant beserta sitasi dokumen ke database
@@ -172,7 +230,6 @@ export const sendMessage = async (req: Request, res: Response) => {
             citations: llmResult.citations,
             sourceType: llmResult.sourceType,
         })
-        console.log(`[chat] selesai`)
 
         return response.requestSuccessWithData(
             res,
@@ -181,7 +238,14 @@ export const sendMessage = async (req: Request, res: Response) => {
             200,
         )
     } catch (error) {
-        console.error("[chat] sendMessage error:", error)
+        ragLogger.error(
+            {
+                event: "rag.chat.failed",
+                notebookId: req.params.notebookId,
+                err: error,
+            },
+            "Failed to process RAG chat message",
+        )
         return response.serverError(res, "Gagal mendapatkan jawaban, silakan coba lagi.")
     }
 }
@@ -206,7 +270,14 @@ export const getMessages = async (req: Request, res: Response) => {
         const messages = await Message.find({ notebookId })
             .sort({ createdAt: 1 })
             .lean()
-        console.log(`[chat] dapet semua chat`)
+        ragLogger.debug(
+            {
+                event: "rag.messages.listed",
+                notebookId,
+                messagesCount: messages.length,
+            },
+            "Fetched chat message history",
+        )
 
         return response.requestSuccessWithData(
             res,
@@ -215,7 +286,14 @@ export const getMessages = async (req: Request, res: Response) => {
             200,
         )
     } catch (error) {
-        console.error("[chat] getMessages error:", error)
+        ragLogger.error(
+            {
+                event: "rag.messages.list_failed",
+                notebookId: req.params.notebookId,
+                err: error,
+            },
+            "Failed to fetch chat message history",
+        )
         return response.serverError(res, "Gagal memuat riwayat obrolan, silahkan muat ulang halaman")
     }
 }
@@ -284,6 +362,7 @@ const buildSummaryPrompt = (
  * Route: POST /chats/:notebookId/summary
  */
 export const createChapterSummary = async (req: Request, res: Response) => {
+    const startedAt = Date.now()
     try {
         // 1. Verifikasi autentikasi user
         const userId = req.userId
@@ -334,7 +413,6 @@ export const createChapterSummary = async (req: Request, res: Response) => {
         }
 
         // 4. Simpan pesan permintaan ringkasan sebagai pesan dari user
-        console.log(`[summary] simpen chat user`)
         const userContent = `Buatkan ringkasan Bab ${chapterTitle} (hlm. ${pageStart}–${pageEnd}) dari ${doc.title}`
         const userMessage = await Message.create({
             notebookId,
@@ -354,10 +432,52 @@ export const createChapterSummary = async (req: Request, res: Response) => {
         )
 
         // 6. Generate ringkasan dengan Gemini (stateless tanpa history percakapan)
-        console.log(`[summary] kirim llm`)
-        const result = await summaryModel.generateContent(summaryPrompt)
-        const responseText = result.response.text()
-        console.log(`[summary] selesai generate summary`)
+        const llmStartedAt = Date.now()
+        summaryLogger.info(
+            {
+                event: "ai.generation.started",
+                provider: "google-gemini",
+                model: SUMMARY_MODEL_NAME,
+                operation: "chapter_summary",
+                notebookId,
+                documentId,
+            },
+            "LLM summary generation started",
+        )
+
+        let responseText: string
+        try {
+            const result = await summaryModel.generateContent(summaryPrompt)
+            responseText = result.response.text()
+            const usageMetadata = result.response.usageMetadata
+            summaryLogger.info(
+                {
+                    event: "ai.generation.completed",
+                    provider: "google-gemini",
+                    model: SUMMARY_MODEL_NAME,
+                    operation: "chapter_summary",
+                    durationMs: Date.now() - llmStartedAt,
+                    ...(usageMetadata ? { tokenUsage: usageMetadata } : {}),
+                },
+                "LLM summary generation completed",
+            )
+        } catch (llmErr) {
+            const safeErr = extractSafeError(llmErr)
+            summaryLogger.error(
+                {
+                    event: "ai.generation.failed",
+                    provider: "google-gemini",
+                    model: SUMMARY_MODEL_NAME,
+                    operation: "chapter_summary",
+                    durationMs: Date.now() - llmStartedAt,
+                    errorCategory: safeErr.errorCategory,
+                    ...(safeErr.providerStatus !== undefined ? { providerStatus: safeErr.providerStatus } : {}),
+                    err: llmErr,
+                },
+                "LLM summary generation failed",
+            )
+            throw llmErr
+        }
 
         // 7. Ekstraksi dan penataan ulang nomor sitasi (Re-numbering citations)
         // Contoh: Jika model mengutip [3] dan [7], akan dinormalkan menjadi [1] dan [2]
@@ -406,7 +526,17 @@ export const createChapterSummary = async (req: Request, res: Response) => {
             citations,
             sourceType: "document",
         })
-        console.log(`[summary] selesai buat summaey`)
+        summaryLogger.info(
+            {
+                event: "summary.generation.completed",
+                notebookId,
+                documentId,
+                chunksCount: rawChunks.length,
+                citationsCount: citations.length,
+                durationMs: Date.now() - startedAt,
+            },
+            "Chapter summary generated",
+        )
 
         return response.requestSuccessWithData(
             res,
@@ -415,7 +545,15 @@ export const createChapterSummary = async (req: Request, res: Response) => {
             200,
         )
     } catch (error) {
-        console.error("[chat] createChapterSummary error:", error)
+        summaryLogger.error(
+            {
+                event: "summary.generation.failed",
+                notebookId: req.params.notebookId,
+                durationMs: Date.now() - startedAt,
+                err: error,
+            },
+            "Chapter summary generation failed",
+        )
         return response.serverError(res, "Gagal membuat ringkasan, silakan coba lagi.")
     }
 }

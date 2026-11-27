@@ -1,5 +1,8 @@
 import mongoose, { Schema, Types } from "mongoose"
 import { EMBEDDING_DIMENSIONS } from "../services/embedding.js"
+import { createModuleLogger } from "../config/logger.js"
+
+const dbLogger = createModuleLogger("database")
 
 interface IChunk {
     documentId: Types.ObjectId
@@ -66,7 +69,7 @@ export const ensureVectorSearchIndex = async (): Promise<void> => {
                             {
                                 type: "vector",
                                 path: "embedding",
-                                numDimensions: EMBEDDING_DIMENSIONS,  
+                                numDimensions: EMBEDDING_DIMENSIONS,
                                 similarity: "cosine",
                             },
                             {
@@ -79,7 +82,10 @@ export const ensureVectorSearchIndex = async (): Promise<void> => {
             ],
         })
 
-        console.log("[atlas] vector search index 'chunks_vector_index' berhasil dibuat")
+        dbLogger.info(
+            { event: "database.mongodb.vector_index.created", indexName: "chunks_vector_index" },
+            "Vector search index 'chunks_vector_index' created",
+        )
     } catch (error: unknown) {
         if (
             typeof error === "object" &&
@@ -87,9 +93,15 @@ export const ensureVectorSearchIndex = async (): Promise<void> => {
             "codeName" in error &&
             (error as { codeName: string }).codeName === "IndexAlreadyExists"
         ) {
-            console.log("[atlas] vector search index sudah ada, skip")
+            dbLogger.debug(
+                { event: "database.mongodb.vector_index.exists", indexName: "chunks_vector_index" },
+                "Vector search index already exists, skipping",
+            )
             return
         }
-        console.warn("[atlas] gagal buat vector search index:", (error as Error).message ?? error)
+        dbLogger.warn(
+            { event: "database.mongodb.vector_index.failed", err: error },
+            "Failed to ensure vector search index",
+        )
     }
 }
