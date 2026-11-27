@@ -1,0 +1,5 @@
+users:
+  admin:
+    password: "$2a$11$placeholder000000000000000000000000000000000000000000000"
+    email: ""
+    name: "admin"
