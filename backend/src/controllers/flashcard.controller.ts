@@ -4,10 +4,13 @@ import response from "../utils/response.js"
 import Document from "../models/document.model.js"
 import { generateFlashcards } from "../services/flashcard.js"
 import type { FlashcardDocument } from "../services/flashcard.js"
+import { createModuleLogger } from "../config/logger.js"
 
+const flashcardLogger = createModuleLogger("flashcard")
 const ALLOWED_COUNTS = [3, 5, 7, 10]
 
 export const getFlashcards = async (req: Request, res: Response) => {
+    const startedAt = Date.now()
     try {
         const userId = req.userId
         if (!userId) {
@@ -23,7 +26,6 @@ export const getFlashcards = async (req: Request, res: Response) => {
             documentIds: string[]
             count: number
         }
-        console.log(`[flashcard]`,documentIds);
 
         if (!ALLOWED_COUNTS.includes(count)) {
             return response.userError(
@@ -57,10 +59,18 @@ export const getFlashcards = async (req: Request, res: Response) => {
             documentTitle: d.title,
             totalPages: d.totalPages,
         }))
-        console.log(`[flashcard] generate`,documentIds);
 
         const cards = await generateFlashcards(flashcardDocs, count)
-        console.log(`[flashcard] selesai generate`,documentIds);
+        flashcardLogger.info(
+            {
+                event: "flashcard.generation.completed",
+                notebookId,
+                documentCount: flashcardDocs.length,
+                cardCount: cards.length,
+                durationMs: Date.now() - startedAt,
+            },
+            "Flashcards generated",
+        )
         return response.requestSuccessWithData(
             res,
             "berhasil membuat flashcard",
@@ -68,7 +78,15 @@ export const getFlashcards = async (req: Request, res: Response) => {
             200,
         )
     } catch (error) {
-        console.error("[flashcard] getFlashcards error:", error)
+        flashcardLogger.error(
+            {
+                event: "flashcard.generation.failed",
+                notebookId: req.params.notebookId,
+                durationMs: Date.now() - startedAt,
+                err: error,
+            },
+            "Failed to generate flashcards",
+        )
         return response.serverError(res, "Gagal membuat flashcard, silakan coba lagi.")
     }
 }

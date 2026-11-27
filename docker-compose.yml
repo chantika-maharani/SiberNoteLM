@@ -10,6 +10,8 @@ services:
     # Use .env if exists, otherwise .env.ci (for CI environments)
     env_file:
       - ./backend/.env
+    environment:
+      LOG_DIR: /app/logs
     ports:
       - "8080:8080"
     networks:
@@ -17,6 +19,8 @@ services:
     volumes:
       # Persistent storage untuk file uploads
       - sibernote_uploads:/app/uploads
+      # Persistent storage untuk application logs
+      - sibernote_logs:/app/logs
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 30s
@@ -54,4 +58,6 @@ networks:
 
 volumes:
   sibernote_uploads:
+    driver: local
+  sibernote_logs:
     driver: local

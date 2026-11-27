@@ -2,6 +2,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 import type { Types } from "mongoose"
 import envVariable from "../utils/ENV.js"
 import Chunk from "../models/chunk.model.js"
+import { createModuleLogger, extractSafeError } from "../config/logger.js"
+
+const flashcardServiceLogger = createModuleLogger("flashcard")
+const FLASHCARD_MODEL_NAME = "gemini-3.5-flash"
 
 export interface FlashcardDocument {
     documentId: Types.ObjectId
@@ -20,7 +24,7 @@ export interface ParsedCard {
 
 
 const genAI = new GoogleGenerativeAI(envVariable.GEMINI_MODEL_Flashcard)
-const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" })
+const model = genAI.getGenerativeModel({ model: FLASHCARD_MODEL_NAME })
 
 const MAX_TOTAL_CHUNKS = 80
 
@@ -184,19 +188,71 @@ const is503 = (err: unknown): boolean => {
 }
 
 const generateWithRetry = async (prompt: string, attempt = 0): Promise<string> => {
+    const startedAt = Date.now()
+    if (attempt === 0) {
+        flashcardServiceLogger.info(
+            {
+                event: "ai.generation.started",
+                provider: "google-gemini",
+                model: FLASHCARD_MODEL_NAME,
+                operation: "flashcard",
+            },
+            "LLM flashcard generation started",
+        )
+    }
+
     try {
         const result = await model.generateContent({
             contents: [{ role: "user", parts: [{ text: prompt }] }],
             generationConfig: { responseMimeType: "application/json" },
         })
+        const usageMetadata = result.response.usageMetadata
+        flashcardServiceLogger.info(
+            {
+                event: "ai.generation.completed",
+                provider: "google-gemini",
+                model: FLASHCARD_MODEL_NAME,
+                operation: "flashcard",
+                durationMs: Date.now() - startedAt,
+                attempt: attempt + 1,
+                ...(usageMetadata ? { tokenUsage: usageMetadata } : {}),
+            },
+            "LLM flashcard generation completed",
+        )
         return result.response.text()
     } catch (err) {
         if (is503(err) && attempt < 3) {
             const delay = 10_000 * (attempt + 1)
-            console.warn(`[flashcard] 503 — retry ${attempt + 1}/3 dalam ${delay / 1000}s`)
+            flashcardServiceLogger.warn(
+                {
+                    event: "ai.generation.retry",
+                    provider: "google-gemini",
+                    model: FLASHCARD_MODEL_NAME,
+                    operation: "flashcard",
+                    attempt: attempt + 1,
+                    maxRetries: 3,
+                    retryDelayMs: delay,
+                    providerStatus: 503,
+                },
+                "Flashcard generation received 503 overload; retrying",
+            )
             await new Promise((resolve) => setTimeout(resolve, delay))
             return generateWithRetry(prompt, attempt + 1)
         }
+        const safeErr = extractSafeError(err)
+        flashcardServiceLogger.error(
+            {
+                event: "ai.generation.failed",
+                provider: "google-gemini",
+                model: FLASHCARD_MODEL_NAME,
+                operation: "flashcard",
+                durationMs: Date.now() - startedAt,
+                errorCategory: safeErr.errorCategory,
+                ...(safeErr.providerStatus !== undefined ? { providerStatus: safeErr.providerStatus } : {}),
+                err,
+            },
+            "LLM flashcard generation failed",
+        )
         throw err
     }
 }
@@ -221,9 +277,16 @@ export const generateFlashcards = async (
     try {
         return parseAndValidate(raw, docs, count)
     } catch (firstErr) {
-        console.warn("[flashcard] validasi gagal, retry generate:", (firstErr as Error).message)
+        flashcardServiceLogger.warn(
+            {
+                event: "flashcard.validation.retry",
+                expectedCount: count,
+                err: firstErr,
+            },
+            "Flashcard output validation failed; retrying generation",
+        )
     }
 
     raw = await generateWithRetry(prompt)
-    return parseAndValidate(raw, docs, count)  
+    return parseAndValidate(raw, docs, count)
 }

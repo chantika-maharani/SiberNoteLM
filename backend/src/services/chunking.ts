@@ -4,6 +4,9 @@ import type { ImageMetadata, OfficeAttachment, OfficeContentNode } from "officep
 import type { Types } from "mongoose"
 import { generateEmbeddings } from "./embedding.js"
 import { processPageTexts } from "./ocr.js"
+import { createModuleLogger } from "../config/logger.js"
+
+const chunkLogger = createModuleLogger("chunking")
 
 const MAX_CHARS_PER_CHUNK = 3000
 const MAX_CHARS_PER_CHUNK_DOCX = 6000
@@ -247,7 +250,17 @@ export const chunkPDF = async (
 
         const ocrCount  = pageResults.filter((p) => p.method === "ocr").length
         const textCount = pageResults.filter((p) => p.method === "text").length
-        console.log(`[chunking] ${result.total} halaman — ${textCount} teks, ${ocrCount} OCR`)
+        chunkLogger.info(
+            {
+                event: "document.chunking.pdf_parsed",
+                documentId: documentId.toString(),
+                totalPages: result.total,
+                textPages: textCount,
+                ocrPages: ocrCount,
+                totalChunks: chunks.length,
+            },
+            "PDF pages parsed for chunking",
+        )
 
         return { chunks: await attachEmbeddings(chunks), totalPages: result.total }
     } catch (err) {
@@ -299,7 +312,16 @@ export const chunkPPTX = async (
 
         if (chunks.length === 0) throw new NoTextError()
 
-        console.log(`[chunking] ${totalSlides} slide — ${ocrImageCount} gambar di-OCR`)
+        chunkLogger.info(
+            {
+                event: "document.chunking.pptx_parsed",
+                documentId: documentId.toString(),
+                totalPages: totalSlides,
+                ocrImages: ocrImageCount,
+                totalChunks: chunks.length,
+            },
+            "PPTX slides parsed for chunking",
+        )
 
         return { chunks: await attachEmbeddings(chunks), totalPages: totalSlides }
     } catch (err) {
@@ -332,7 +354,14 @@ export const chunkTXT = async (
 
         if (chunks.length === 0) throw new NoTextError()
 
-        console.log(`[chunking] TXT — ${chunks.length} chunks`)
+        chunkLogger.info(
+            {
+                event: "document.chunking.txt_parsed",
+                documentId: documentId.toString(),
+                totalChunks: chunks.length,
+            },
+            "TXT parsed for chunking",
+        )
 
         return { chunks: await attachEmbeddings(chunks), totalPages: 1 }
     } catch (err) {
@@ -393,7 +422,15 @@ export const chunkDOCX = async (
 
         if (chunks.length === 0) throw new NoTextError()
 
-        console.log(`[chunking] DOCX — ${chunks.length} chunks, ${ocrImageCount} gambar di-OCR`)
+        chunkLogger.info(
+            {
+                event: "document.chunking.docx_parsed",
+                documentId: documentId.toString(),
+                totalChunks: chunks.length,
+                ocrImages: ocrImageCount,
+            },
+            "DOCX parsed for chunking",
+        )
 
         return { chunks: await attachEmbeddings(chunks), totalPages: 1 }
     } catch (err) {

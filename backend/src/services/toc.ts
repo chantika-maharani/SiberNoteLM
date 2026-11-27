@@ -2,6 +2,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 import type { Types } from "mongoose"
 import envVariable from "../utils/ENV.js"
 import Chunk from "../models/chunk.model.js"
+import { createModuleLogger, extractSafeError } from "../config/logger.js"
+
+const tocServiceLogger = createModuleLogger("toc")
+const TOC_MODEL_NAME = "gemini-3.1-flash-lite"
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -23,7 +27,7 @@ export interface ParsedChapter {
 // ─── setup ────────────────────────────────────────────────────────────────────
 
 const genAI = new GoogleGenerativeAI(envVariable.GEMINI_MODEL)
-const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite" })
+const model = genAI.getGenerativeModel({ model: TOC_MODEL_NAME })
 
 /** Maksimal chunk yang dikirim ke Gemini — batasi token */
 const MAX_CHUNKS = 300
@@ -233,7 +237,13 @@ const parseAndValidate = (
             if (!id) {
                 // last resort: assign ke dokumen pertama dan log warning
                 const fallbackDoc = docs[0]!
-                console.warn(`[toc] documentTitle "${c.documentTitle}" tidak dikenal, fallback ke "${fallbackDoc.documentTitle}"`)
+                tocServiceLogger.warn(
+                    {
+                        event: "toc.document_title.fallback",
+                        fallbackDocumentId: fallbackDoc.documentId.toString(),
+                    },
+                    "Unknown documentTitle returned by LLM; falling back to first document",
+                )
                 id = fallbackDoc.documentId
                 c.documentTitle = fallbackDoc.documentTitle
             }
@@ -272,19 +282,71 @@ const generateContentWithRetry = async (
     prompt: string,
     attempt = 0,
 ): Promise<string> => {
+    const startedAt = Date.now()
+    if (attempt === 0) {
+        tocServiceLogger.info(
+            {
+                event: "ai.generation.started",
+                provider: "google-gemini",
+                model: TOC_MODEL_NAME,
+                operation: "toc",
+            },
+            "LLM ToC generation started",
+        )
+    }
+
     try {
         const result = await model.generateContent({
             contents: [{ role: "user", parts: [{ text: prompt }] }],
             generationConfig: { responseMimeType: "application/json" },
         })
+        const usageMetadata = result.response.usageMetadata
+        tocServiceLogger.info(
+            {
+                event: "ai.generation.completed",
+                provider: "google-gemini",
+                model: TOC_MODEL_NAME,
+                operation: "toc",
+                durationMs: Date.now() - startedAt,
+                attempt: attempt + 1,
+                ...(usageMetadata ? { tokenUsage: usageMetadata } : {}),
+            },
+            "LLM ToC generation completed",
+        )
         return result.response.text()
     } catch (err) {
         if (is503(err) && attempt < MAX_503_RETRIES) {
             const delay = RETRY_503_DELAY_MS * (attempt + 1)
-            console.warn(`[toc] 503 model overload — retry ${attempt + 1}/${MAX_503_RETRIES} dalam ${delay / 1000}s`)
+            tocServiceLogger.warn(
+                {
+                    event: "ai.generation.retry",
+                    provider: "google-gemini",
+                    model: TOC_MODEL_NAME,
+                    operation: "toc",
+                    attempt: attempt + 1,
+                    maxRetries: MAX_503_RETRIES,
+                    retryDelayMs: delay,
+                    providerStatus: 503,
+                },
+                "ToC generation received 503 overload; retrying",
+            )
             await new Promise((resolve) => setTimeout(resolve, delay))
             return generateContentWithRetry(prompt, attempt + 1)
         }
+        const safeErr = extractSafeError(err)
+        tocServiceLogger.error(
+            {
+                event: "ai.generation.failed",
+                provider: "google-gemini",
+                model: TOC_MODEL_NAME,
+                operation: "toc",
+                durationMs: Date.now() - startedAt,
+                errorCategory: safeErr.errorCategory,
+                ...(safeErr.providerStatus !== undefined ? { providerStatus: safeErr.providerStatus } : {}),
+                err,
+            },
+            "LLM ToC generation failed",
+        )
         throw err
     }
 }

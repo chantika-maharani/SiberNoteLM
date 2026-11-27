@@ -7,6 +7,9 @@ import User from "../models/user.model.js"
 import RefreshToken from "../models/refreshToken.model.js"
 import envVariable from "../utils/ENV.js"
 import response from "../utils/response.js"
+import { createModuleLogger } from "../config/logger.js"
+
+const authLogger = createModuleLogger("auth")
 
 /** Masa berlaku refresh token (hari). */
 const REFRESH_TOKEN_EXPIRES_DAYS = 7
@@ -49,7 +52,11 @@ export const registerUser = async (req: Request, res: Response) => {
         const existingUser = await User.findOne({ $or: [{ email }, { username }] })
         if (existingUser) {
             const field = existingUser.email === email.toLowerCase() ? "email" : "username"
-            return response.userError(res, `${field} sudah terdaftar`,409)
+            authLogger.warn(
+                { event: "auth.register.failed", reason: `${field}_already_exists` },
+                "User registration rejected: duplicate field",
+            )
+            return response.userError(res, `${field} sudah terdaftar`, 409)
         }
 
         const hashedPassword = await hashPassword(password)
@@ -58,9 +65,16 @@ export const registerUser = async (req: Request, res: Response) => {
         const accessToken = signAccessToken(user._id.toString())
         const refreshToken = signRefreshToken(user._id.toString())
         await saveRefreshToken(user._id.toString(), refreshToken)
-        console.log(`[user] reqister user`);
+        authLogger.info(
+            { event: "auth.register.success", userId: user._id.toString() },
+            "User registered successfully",
+        )
         return response.requestSuccessWithData(res, "berhasil buat user", { accessToken, refreshToken }, 201)
     } catch (error) {
+        authLogger.error(
+            { event: "auth.register.failed", reason: "internal_error", err: error },
+            "User registration failed",
+        )
         return response.serverError(res, "gagal register user")
     }
 }
@@ -75,18 +89,32 @@ export const registerUser = async (req: Request, res: Response) => {
 export const loginUser = async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body
-        console.log(email);
-        const user = await User.findOne({ email:email })
+        const user = await User.findOne({ email: email })
         if (!user || !(await verifyPassword(password, user.password))) {
+            authLogger.warn(
+                {
+                    event: "auth.login.failed",
+                    ...(user ? { userId: user._id.toString() } : {}),
+                    reason: "invalid_credentials",
+                },
+                "User login failed",
+            )
             return response.userError(res, "email atau password salah")
         }
 
         const accessToken = signAccessToken(user._id.toString())
         const refreshToken = signRefreshToken(user._id.toString())
         await saveRefreshToken(user._id.toString(), refreshToken)
-        console.log(`[user] user login`);
+        authLogger.info(
+            { event: "auth.login.success", userId: user._id.toString() },
+            "User logged in successfully",
+        )
         return response.requestSuccessWithData(res, "berhasil login", { accessToken, refreshToken }, 200)
     } catch (error) {
+        authLogger.error(
+            { event: "auth.login.failed", reason: "internal_error", err: error },
+            "User login error",
+        )
         return response.serverError(res, "gagal login user")
     }
 }
@@ -104,12 +132,20 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
         const { refreshToken } = req.body
 
         if (!refreshToken) {
+            authLogger.warn(
+                { event: "auth.refresh.failed", reason: "missing_refresh_token" },
+                "Token refresh failed",
+            )
             return response.userError(res, "refresh token tidak ada")
         }
 
         // Pastikan token masih tercatat di DB (bisa di-revoke via logout)
         const stored = await RefreshToken.findOne({ token: refreshToken })
         if (!stored) {
+            authLogger.warn(
+                { event: "auth.refresh.failed", reason: "refresh_token_not_found" },
+                "Token refresh failed",
+            )
             return response.userError(res, "refresh token tidak valid atau sudah expired")
         }
 
@@ -118,14 +154,29 @@ export const refreshAccessToken = async (req: Request, res: Response) => {
             payload = jwt.verify(refreshToken, envVariable.REFRESH_TOKEN_KEY) as { userId: string }
         } catch {
             await stored.deleteOne()
+            authLogger.warn(
+                {
+                    event: "auth.refresh.failed",
+                    userId: stored.userId.toString(),
+                    reason: "invalid_or_expired_refresh_token",
+                },
+                "Token refresh failed",
+            )
             return response.userError(res, "refresh token tidak valid atau sudah expired")
         }
 
         const accessToken = signAccessToken(payload.userId)
-        console.log(`[user] refresh token`);
+        authLogger.info(
+            { event: "auth.refresh.success", userId: payload.userId },
+            "Access token refreshed",
+        )
 
         return response.requestSuccessWithData(res, "access token berhasil diperbarui", { accessToken }, 200)
     } catch (error) {
+        authLogger.error(
+            { event: "auth.refresh.failed", reason: "internal_error", err: error },
+            "Token refresh error",
+        )
         return response.serverError(res, "gagal refresh token")
     }
 }
@@ -144,10 +195,20 @@ export const logoutUser = async (req: Request, res: Response) => {
             return response.userError(res, "refresh token tidak ada")
         }
 
-        await RefreshToken.deleteOne({ token: refreshToken })
-        console.log(`[user] user logout`);
+        const deleted = await RefreshToken.findOneAndDelete({ token: refreshToken }).select("userId")
+        authLogger.info(
+            {
+                event: "auth.logout",
+                ...(deleted?.userId ? { userId: deleted.userId.toString() } : {}),
+            },
+            "User logged out",
+        )
         return response.requestSuccessWithData(res, "berhasil logout", {}, 200)
     } catch (error) {
+        authLogger.error(
+            { event: "auth.logout.failed", err: error },
+            "User logout failed",
+        )
         return response.serverError(res, "gagal logout")
     }
 }
@@ -170,9 +231,13 @@ export const getUser = async (req: Request, res: Response) => {
         if (!user) {
             return response.notFoundError(res, "user tidak ketemu")
         }
-        console.log(`[user] dapet user`);
+        authLogger.debug({ event: "user.profile.fetched", userId }, "Fetched user profile")
         return response.requestSuccessWithData(res, "berhasil get data user", { user }, 200)
     } catch (error) {
+        authLogger.error(
+            { event: "user.profile.fetch_failed", userId: req.userId, err: error },
+            "Failed to fetch user profile",
+        )
         return response.serverError(res, "gagal get data user")
     }
 }
@@ -188,7 +253,7 @@ export const getUser = async (req: Request, res: Response) => {
  * (lihat `upload.middleware.ts`). File lama tertimpa karena nama tetap `avatar.jpg`.
  * Controller hanya membangun URL publik: `{UPLOAD_BASE_URL}/avatars/{userId}/avatar.jpg`.
  */
-export const updateUsernameOravatarUser = async(req: Request, res: Response)=>{
+export const updateUsernameOravatarUser = async (req: Request, res: Response) => {
     try {
         const userId = req.userId
         const { username } = req.body
@@ -199,7 +264,7 @@ export const updateUsernameOravatarUser = async(req: Request, res: Response)=>{
         }
 
         if (!username && !avatarFile) {
-            return response.userError(res, "minimal username atau avatar harus diisi",400)
+            return response.userError(res, "minimal username atau avatar harus diisi", 400)
         }
 
         const updateData: { username?: string; avatarUrl?: string } = {}
@@ -207,7 +272,7 @@ export const updateUsernameOravatarUser = async(req: Request, res: Response)=>{
         if (username) {
             const isUsernameExist = await User.findOne({ username })
             if (isUsernameExist) {
-                return response.userError(res, "username sudah terdaftar",400)
+                return response.userError(res, "username sudah terdaftar", 400)
             }
             updateData.username = username
         }
@@ -218,11 +283,22 @@ export const updateUsernameOravatarUser = async(req: Request, res: Response)=>{
         }
 
         const user = await User.findByIdAndUpdate(userId, updateData, { returnDocument: "after" }).select("-password")
-        console.log(`[user] update user`);
+        authLogger.info(
+            {
+                event: "user.profile.updated",
+                userId,
+                updatedUsername: Boolean(username),
+                updatedAvatar: Boolean(avatarFile),
+            },
+            "User profile updated",
+        )
         return response.requestSuccessWithData(res, "Profil berhasil diperbarui", { user }, 200)
     } catch (error) {
-        console.error(error)
-        return response.serverError(res, "gagal update data user")       
+        authLogger.error(
+            { event: "user.profile.update_failed", userId: req.userId, err: error },
+            "Failed to update user profile",
+        )
+        return response.serverError(res, "gagal update data user")
     }
 }
 
@@ -234,33 +310,41 @@ export const updateUsernameOravatarUser = async(req: Request, res: Response)=>{
  * - `newPassword` tidak boleh sama dengan username.
  * - Password baru di-hash sebelum disimpan.
  */
-export const updateUserPassword = async(req: Request, res: Response)=>{
+export const updateUserPassword = async (req: Request, res: Response) => {
     try {
-        
-        const {newPassword,oldPassword} = req.body
+
+        const { newPassword, oldPassword } = req.body
         const userId = req.userId
 
         if (!userId) {
             return response.userError(res, "tidak terautentikasi")
-        
-         } 
-        const user =await User.findById(userId)
-        if(!user){
-            return response.notFoundError(res,"user tidak ditemukan")
+
+        }
+        const user = await User.findById(userId)
+        if (!user) {
+            return response.notFoundError(res, "user tidak ditemukan")
         }
         if (user.username === newPassword) {
-            return response.notFoundError(res,"password tidak boleh sama dengan username")
+            return response.notFoundError(res, "password tidak boleh sama dengan username")
         }
-        const isOldPasswordMatch =await verifyPassword(oldPassword,user.password)
-        if(!isOldPasswordMatch){
-            return response.userError(res,"Password lama salah",400)
+        const isOldPasswordMatch = await verifyPassword(oldPassword, user.password)
+        if (!isOldPasswordMatch) {
+            authLogger.warn(
+                { event: "user.password.update_failed", userId, reason: "old_password_mismatch" },
+                "Password update failed: old password mismatch",
+            )
+            return response.userError(res, "Password lama salah", 400)
         }
         const hashedNewPassword = await hashPassword(newPassword)
-        const updatedUser = await User.findByIdAndUpdate(userId,{password:hashedNewPassword})
-        console.log(`[user] update password`);
-        return response.requestSuccess(res,"Password berhasil diperbarui")
+        await User.findByIdAndUpdate(userId, { password: hashedNewPassword })
+        authLogger.info({ event: "user.password.updated", userId }, "User password updated")
+        return response.requestSuccess(res, "Password berhasil diperbarui")
     }
     catch (error) {
-        return response.serverError(res, "gagal update password user")              
+        authLogger.error(
+            { event: "user.password.update_failed", userId: req.userId, err: error },
+            "Failed to update user password",
+        )
+        return response.serverError(res, "gagal update password user")
     }
 }

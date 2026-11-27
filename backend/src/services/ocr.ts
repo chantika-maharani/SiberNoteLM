@@ -1,4 +1,7 @@
 import { createWorker } from "tesseract.js"
+import { createModuleLogger } from "../config/logger.js"
+
+const ocrLogger = createModuleLogger("ocr")
 
 // ─── threshold deteksi ────────────────────────────────────────────────────────
 
@@ -17,8 +20,8 @@ const MIN_CHARS_FOR_TEXT_PAGE = 30
 export async function ocrImageBuffer(imageBuffer: Buffer): Promise<string> {
     const worker = await createWorker("ind+eng", undefined, {
         // matikan logging tesseract supaya tidak noise di console
-        logger: () => {},
-        errorHandler: () => {},
+        logger: () => { },
+        errorHandler: () => { },
     })
 
     try {
@@ -33,8 +36,8 @@ export async function ocrImageBuffer(imageBuffer: Buffer): Promise<string> {
 
 export interface OcrPageResult {
     pageNumber: number
-    text:       string
-    method:     "text" | "ocr"  // apakah teks dari pdf-parse atau dari OCR
+    text: string
+    method: "text" | "ocr"  // apakah teks dari pdf-parse atau dari OCR
 }
 
 /**
@@ -67,8 +70,8 @@ export async function processPageTexts(
             // halaman teks normal — pakai langsung
             results.push({
                 pageNumber: page.num,
-                text:       trimmed,
-                method:     "text",
+                text: trimmed,
+                method: "text",
             })
             continue
         }
@@ -76,19 +79,26 @@ export async function processPageTexts(
         // halaman kosong / gambar / scan — coba OCR
         try {
             const imageBuffer = await renderPage(page.num)
-            const ocrText     = await ocrImageBuffer(imageBuffer)
+            const ocrText = await ocrImageBuffer(imageBuffer)
 
             if (ocrText.length >= MIN_CHARS_FOR_TEXT_PAGE) {
                 results.push({
                     pageNumber: page.num,
-                    text:       ocrText,
-                    method:     "ocr",
+                    text: ocrText,
+                    method: "ocr",
                 })
             }
             // kalau OCR juga kosong → skip halaman ini (gambar dekoratif / blank)
         } catch (err) {
             // OCR gagal untuk halaman ini → log dan lanjut, tidak crash
-            console.warn(`[ocr] halaman ${page.num} gagal di-OCR:`, (err as Error).message)
+            ocrLogger.warn(
+                {
+                    event: "document.ocr.page_failed",
+                    pageNumber: page.num,
+                    err,
+                },
+                "OCR failed for page; skipping",
+            )
         }
     }
 
