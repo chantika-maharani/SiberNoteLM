@@ -202,78 +202,67 @@ function ButtonSpinner() {
 }
 
 /* ---------- Halaman Login (terhubung ke POST /user/login) ---------- */
-
-/** Validasi satu kolom Login. Mengembalikan pesan error, atau "" kalau valid. */
 function validateLoginField(name, value) {
   if (name === "email") {
-    if (!value.trim()) return "Email tidak boleh kosong.";
-    if (!EMAIL_RE.test(value)) return "Format email tidak valid.";
+    if (!value.trim()) return "Email tidak boleh kosong";
+    if (!EMAIL_RE.test(value.trim())) return "Format email tidak valid";
     return "";
   }
-  return value ? "" : "Password tidak boleh kosong.";
+  if (name === "password") {
+    if (!value) return "Password tidak boleh kosong";
+    return "";
+  }
+  return "";
 }
 
 function LoginPage({ goRegister, notice, onLoginSuccess }) {
   const [form, setForm] = useState({ email: "", password: "" });
-  const [errors, setErrors] = useState({}); // error tiap kolom (menentukan border merah)
-  const [touched, setTouched] = useState({}); // kolom yang pernah ditinggalkan
-  const [shown, setShown] = useState(null); // kolom yang pesannya sedang ditampilkan
+  const [errors, setErrors] = useState({});
   const [apiError, setApiError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Pesan error bergantian: yang tampil selalu milik kolom yang terakhir diketik/ditinggalkan,
-  // dan langsung menggantikan pesan sebelumnya (tidak menumpuk).
-  const message = apiError || (shown ? errors[shown] : "") || "";
-  const errorMessages = message ? [message] : [];
-
-  // Hanya kolom yang pesannya sedang tampil yang berwarna merah.
-  const fieldError = (name) => (shown === name && !apiError ? errors[name] : "");
+  // Kotak di bawah judul "Login" HANYA muncul saat apiError terisi ("Email atau password salah")
+  const errorMessages = apiError ? [apiError] : [];
 
   function update(e) {
     const { name, value } = e.target;
     setForm((f) => ({ ...f, [name]: value }));
-    setApiError("");
-    setShown(name);
-    // Diperiksa langsung kalau kolom ini sudah pernah ditinggalkan, atau isinya dikosongkan.
-    if (touched[name] || value === "") {
-      setErrors((prev) => ({ ...prev, [name]: validateLoginField(name, value) }));
+    if (errors[name]) {
+      setErrors((prev) => ({ ...prev, [name]: "" }));
     }
-  }
-
-  function handleBlur(e) {
-    const { name, value } = e.target;
-    setTouched((t) => ({ ...t, [name]: true }));
-    setErrors((prev) => ({ ...prev, [name]: validateLoginField(name, value) }));
-    setShown(name);
-    setApiError("");
+    if (apiError) {
+      setApiError("");
+    }
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
-    const next = {};
-    for (const name of ["email", "password"]) {
-      const error = validateLoginField(name, form[name]);
-      if (error) next[name] = error;
-    }
-    setErrors(next);
-    setTouched({ email: true, password: true });
-    setShown(Object.keys(next)[0] ?? null); // saat Login ditekan: tampilkan yang paling atas
+
+    const nextErrors = {};
+    const emailErr = validateLoginField("email", form.email);
+    const passwordErr = validateLoginField("password", form.password);
+
+    if (emailErr) nextErrors.email = emailErr;
+    if (passwordErr) nextErrors.password = passwordErr;
+
+    setErrors(nextErrors);
     setApiError("");
-    if (Object.keys(next).length) return;
+
+    // Jika ada error di kolom Email/Password -> tampil di bawah kolom masing-masing, BUKAN di bawah judul Login
+    if (Object.keys(nextErrors).length > 0) return;
 
     setLoading(true);
     try {
-      const data = await login({ email: form.email.trim(), password: form.password });
+      const data = await login({
+        email: form.email.trim(),
+        password: form.password,
+      });
       saveRefreshToken(data.refreshToken);
       onLoginSuccess(data.accessToken);
     } catch (err) {
-      const fieldErrors = mapFieldErrors(err);
-      if (Object.keys(fieldErrors).length) {
-        setErrors(fieldErrors);
-        setShown(Object.keys(fieldErrors)[0]);
-      } else {
-        setApiError(err.message);
-      }
+      // Kredensial tidak cocok dari BE -> tampil di bawah judul "Login", kosongkan error kolom
+      setErrors({});
+      setApiError("Email atau password salah");
     } finally {
       setLoading(false);
     }
@@ -282,19 +271,36 @@ function LoginPage({ goRegister, notice, onLoginSuccess }) {
   return (
     <main className="auth">
       <h1>Login</h1>
-      {notice && <p className="msg-success" role="status">{notice}</p>}
+      {notice && (
+        <p className="msg-success" role="status">
+          {notice}
+        </p>
+      )}
       <ErrorSummary messages={errorMessages} />
       <form onSubmit={handleSubmit} noValidate>
-        <Field id="email" label="Email" error={fieldError("email")} showMessage={false}>
-          <TextInput id="email" name="email" type="email" autoComplete="email"
-            placeholder="Masukkan email" value={form.email} onChange={update} onBlur={handleBlur}
-            error={fieldError("email")} />
+        <Field id="email" label="Email" error={errors.email} showMessage={true}>
+          <TextInput
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            placeholder="Masukkan email"
+            value={form.email}
+            onChange={update}
+            error={errors.email}
+          />
         </Field>
 
-        <Field id="password" label="Password" error={fieldError("password")} showMessage={false}>
-          <PasswordInput id="password" name="password" autoComplete="current-password"
-            placeholder="Masukkan password" value={form.password} onChange={update} onBlur={handleBlur}
-            error={fieldError("password")} />
+        <Field id="password" label="Password" error={errors.password} showMessage={true}>
+          <PasswordInput
+            id="password"
+            name="password"
+            autoComplete="current-password"
+            placeholder="Masukkan password"
+            value={form.password}
+            onChange={update}
+            error={errors.password}
+          />
         </Field>
 
         <button className="btn" type="submit" disabled={loading}>
@@ -304,7 +310,9 @@ function LoginPage({ goRegister, notice, onLoginSuccess }) {
       </form>
       <p className="switch">
         Belum memiliki akun?{" "}
-        <button type="button" className="link" onClick={goRegister}>Register</button>
+        <button type="button" className="link" onClick={goRegister}>
+          Register
+        </button>
       </p>
     </main>
   );
