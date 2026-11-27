@@ -313,19 +313,20 @@ function LoginPage({ goRegister, notice, onLoginSuccess }) {
 /* ---------- Halaman Register (terhubung ke POST /user/register) ---------- */
 
 /** Validasi satu field secara terpisah, dipakai untuk validasi real-time. */
+
 function validateField(name, value, form) {
   switch (name) {
     case "username":
       return validateUsername(value);
     case "email":
-      if (!value.trim()) return "Email tidak boleh kosong.";
-      if (!EMAIL_RE.test(value)) return "Format email tidak valid.";
+      if (!value.trim()) return "email tidak boleh kosong";
+      if (!EMAIL_RE.test(value.trim())) return "format email tidak valid";
       return "";
     case "password":
       return validatePassword(value, form.username);
     case "confirm":
-      if (!value) return "Konfirmasi password tidak boleh kosong.";
-      if (value !== form.password) return "Konfirmasi password tidak sama.";
+      if (!value) return "konfirmasi password tidak boleh kosong";
+      if (value !== form.password) return "Password dan konfirmasi password tidak sama";
       return "";
     default:
       return "";
@@ -334,65 +335,49 @@ function validateField(name, value, form) {
 
 function RegisterPage({ goLogin, onRegistered }) {
   const [form, setForm] = useState({ username: "", email: "", password: "", confirm: "" });
-  const [errors, setErrors] = useState({}); // error tiap kolom (menentukan border merah)
-  const [touched, setTouched] = useState({}); // kolom yang pernah ditinggalkan
-  const [shown, setShown] = useState(null); // kolom yang pesannya sedang ditampilkan
-  const [apiError, setApiError] = useState("");
+  const [errors, setErrors] = useState({});
+  const [touched, setTouched] = useState({});
   const [loading, setLoading] = useState(false);
 
-  // Pesan error bergantian: yang tampil selalu milik kolom yang terakhir diketik/ditinggalkan,
-  // dan langsung menggantikan pesan sebelumnya (tidak menumpuk).
-  const message = apiError || (shown ? errors[shown] : "") || "";
-  const errorMessages = message ? [message] : [];
-
-  // Hanya kolom yang pesannya sedang tampil yang berwarna merah.
-  const fieldError = (name) => (shown === name && !apiError ? errors[name] : "");
-
-  // Kolom diperiksa langsung kalau sudah pernah ditinggalkan, atau isinya dikosongkan
-  // (mis. username diketik lalu dihapus sampai 0 karakter). Field "confirm" ikut
-  // diperiksa ulang saat "password" diedit.
   function update(e) {
     const { name, value } = e.target;
     const nextForm = { ...form, [name]: value };
     setForm(nextForm);
-    setApiError("");
-    setShown(name);
 
     setErrors((prevErrors) => {
       const nextErrors = { ...prevErrors };
-      if (touched[name] || value === "") nextErrors[name] = validateField(name, value, nextForm);
-      if (name === "password" && touched.confirm) {
+      if (touched[name] || prevErrors[name]) {
+        nextErrors[name] = validateField(name, value, nextForm);
+      }
+      if (name === "username" && (touched.password || prevErrors.password)) {
+        nextErrors.password = validateField("password", nextForm.password, nextForm);
+      }
+      if (name === "password" && (touched.confirm || prevErrors.confirm)) {
         nextErrors.confirm = validateField("confirm", nextForm.confirm, nextForm);
       }
       return nextErrors;
     });
   }
 
-  // Pindah ke kolom lain: kolom yang ditinggalkan diperiksa, dan pesannya menggantikan pesan sebelumnya.
   function handleBlur(e) {
     const { name, value } = e.target;
     setTouched((t) => ({ ...t, [name]: true }));
     setErrors((prev) => ({ ...prev, [name]: validateField(name, value, form) }));
-    setShown(name);
-    setApiError("");
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
+
+    // Validasi seluruh kolom sekaligus (Skenario 1, 2, dan 4)
     const next = {};
-    const usernameError = validateUsername(form.username);
-    if (usernameError) next.username = usernameError;
-    if (!form.email.trim()) next.email = "Email tidak boleh kosong.";
-    else if (!EMAIL_RE.test(form.email)) next.email = "Format email tidak valid.";
-    const passwordError = validatePassword(form.password, form.username);
-    if (passwordError) next.password = passwordError;
-    if (!form.confirm) next.confirm = "Konfirmasi password wajib diisi.";
-    else if (form.confirm !== form.password) next.confirm = "Konfirmasi password tidak sama.";
+    for (const name of ["username", "email", "password", "confirm"]) {
+      const errMsg = validateField(name, form[name], form);
+      if (errMsg) next[name] = errMsg;
+    }
+
     setErrors(next);
     setTouched({ username: true, email: true, password: true, confirm: true });
-    setShown(Object.keys(next)[0] ?? null); // saat Register ditekan: tampilkan yang paling atas
-    setApiError("");
-    if (Object.keys(next).length) return;
+    if (Object.keys(next).length > 0) return;
 
     setLoading(true);
     try {
@@ -403,13 +388,37 @@ function RegisterPage({ goLogin, onRegistered }) {
       });
       onRegistered();
     } catch (err) {
-      const fieldErrors = mapFieldErrors(err);
-      if (Object.keys(fieldErrors).length) {
-        setErrors(fieldErrors);
-        setShown(Object.keys(fieldErrors)[0]);
-      } else {
-        setApiError(err.message);
+      // Skenario 3: Tangani error dari server ("username sudah terdaftar" / "email sudah terdaftar")
+      const serverFieldErrors = mapFieldErrors(err);
+      const nextServerErrors = {};
+
+      if (serverFieldErrors.username) {
+        nextServerErrors.username = serverFieldErrors.username.toLowerCase().includes("username")
+          ? "username sudah terdaftar"
+          : serverFieldErrors.username;
       }
+
+      if (serverFieldErrors.email) {
+        nextServerErrors.email = serverFieldErrors.email.toLowerCase().includes("email")
+          ? "email sudah terdaftar"
+          : serverFieldErrors.email;
+      }
+
+      // Jika backend tidak mengirim fieldErrors terstruktur, cek teks err.message
+      if (Object.keys(nextServerErrors).length === 0) {
+        const rawMsg = (err.message || "").toLowerCase();
+        if (rawMsg.includes("username")) {
+          nextServerErrors.username = "username sudah terdaftar";
+        }
+        if (rawMsg.includes("email")) {
+          nextServerErrors.email = "email sudah terdaftar";
+        }
+        if (Object.keys(nextServerErrors).length === 0) {
+          nextServerErrors.username = err.message || "Registrasi gagal, silakan coba lagi.";
+        }
+      }
+
+      setErrors(nextServerErrors);
     } finally {
       setLoading(false);
     }
@@ -419,28 +428,57 @@ function RegisterPage({ goLogin, onRegistered }) {
     <main className="auth">
       <h1>Register</h1>
       <form onSubmit={handleSubmit} noValidate>
-        <Field id="username" label="Username" error={fieldError("username")} showMessage={false}>
-          <TextInput id="username" name="username" autoComplete="username"
-            placeholder="Masukkan username" value={form.username} onChange={update} onBlur={handleBlur}
-            error={fieldError("username")} />
+        <Field id="username" label="Username" error={errors.username} showMessage={true}>
+          <TextInput
+            id="username"
+            name="username"
+            autoComplete="username"
+            placeholder="Masukkan username"
+            value={form.username}
+            onChange={update}
+            onBlur={handleBlur}
+            error={errors.username}
+          />
         </Field>
 
-        <Field id="reg-email" label="Email" error={fieldError("email")} showMessage={false}>
-          <TextInput id="reg-email" name="email" type="email" autoComplete="email"
-            placeholder="Masukkan email" value={form.email} onChange={update} onBlur={handleBlur}
-            error={fieldError("email")} />
+        <Field id="reg-email" label="Email" error={errors.email} showMessage={true}>
+          <TextInput
+            id="reg-email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            placeholder="Masukkan email"
+            value={form.email}
+            onChange={update}
+            onBlur={handleBlur}
+            error={errors.email}
+          />
         </Field>
 
-        <Field id="reg-password" label="Password" error={fieldError("password")} showMessage={false}>
-          <PasswordInput id="reg-password" name="password" autoComplete="new-password"
-            placeholder="Masukkan password" value={form.password} onChange={update} onBlur={handleBlur}
-            error={fieldError("password")} />
+        <Field id="reg-password" label="Password" error={errors.password} showMessage={true}>
+          <PasswordInput
+            id="reg-password"
+            name="password"
+            autoComplete="new-password"
+            placeholder="Masukkan password"
+            value={form.password}
+            onChange={update}
+            onBlur={handleBlur}
+            error={errors.password}
+          />
         </Field>
 
-        <Field id="confirm" label="Konfirmasi password" error={fieldError("confirm")} showMessage={false}>
-          <PasswordInput id="confirm" name="confirm" autoComplete="new-password"
-            placeholder="Konfirmasi password" value={form.confirm} onChange={update} onBlur={handleBlur}
-            error={fieldError("confirm")} />
+        <Field id="confirm" label="Konfirmasi password" error={errors.confirm} showMessage={true}>
+          <PasswordInput
+            id="confirm"
+            name="confirm"
+            autoComplete="new-password"
+            placeholder="Konfirmasi password"
+            value={form.confirm}
+            onChange={update}
+            onBlur={handleBlur}
+            error={errors.confirm}
+          />
         </Field>
 
         <button className="btn" type="submit" disabled={loading}>
@@ -450,7 +488,9 @@ function RegisterPage({ goLogin, onRegistered }) {
       </form>
       <p className="switch">
         Sudah memiliki akun?{" "}
-        <button type="button" className="link" onClick={goLogin}>Login</button>
+        <button type="button" className="link" onClick={goLogin}>
+          Login
+        </button>
       </p>
     </main>
   );
