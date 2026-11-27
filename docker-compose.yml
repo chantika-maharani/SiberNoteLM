@@ -52,6 +52,24 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── Dozzle Log Dashboard ──────────────────────────────────────────────────
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: sibernote-dozzle
+    restart: unless-stopped
+    ports:
+      - "9999:8080"
+    environment:
+      DOZZLE_LEVEL: info
+      DOZZLE_AUTH_PROVIDER: simple
+    volumes:
+      # Read-only access ke Docker socket untuk membaca log container
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Konfigurasi autentikasi
+      - ./dozzle/users.yml:/data/users.yml:ro
+    networks:
+      - sibernote-net
+
 networks:
   sibernote-net:
     driver: bridge
